@@ -39,11 +39,7 @@ func (h *Handler) Setup(session sarama.ConsumerGroupSession) error {
 		h.mu.Lock()
 		h.batch = make([]*sarama.ConsumerMessage, 0, h.cfg.BatchSize)
 		h.session = session
-		h.timer = time.AfterFunc(h.cfg.BatchTimeout, func() {
-			h.mu.Lock()
-			h.flush(session)
-			h.mu.Unlock()
-		})
+		h.timer = time.AfterFunc(h.cfg.BatchTimeout, h.timerFlush)
 		h.mu.Unlock()
 	}
 	return nil
@@ -67,7 +63,6 @@ func (h *Handler) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama
 			h.mu.Lock()
 			h.batch = append(h.batch, msg)
 			if len(h.batch) >= h.cfg.BatchSize {
-				h.timer.Reset(h.cfg.BatchTimeout)
 				h.flush(session)
 			}
 			h.mu.Unlock()
@@ -76,6 +71,15 @@ func (h *Handler) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama
 		}
 	}
 	return nil
+}
+
+func (h *Handler) timerFlush() {
+	h.mu.Lock()
+	h.flush(h.session)
+	if h.timer != nil {
+		h.timer.Reset(h.cfg.BatchTimeout)
+	}
+	h.mu.Unlock()
 }
 
 // flush drains the current batch. Caller must hold h.mu.

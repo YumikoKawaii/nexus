@@ -4,6 +4,7 @@
 
 A Kafka transformer service that consumes raw OTLP JSON batches from `otel.traces`, `otel.metrics`, and `otel.logs` topics, explodes the nested OTLP protobuf-JSON structure into flat rows, remaps field names and types to match the StarRocks `otel` schema, and produces to flat topics consumed by StarRocks Routine Load jobs.
 
+Kafka: `$KAFKA_BROKERS`
 
 Input topics: `otel.traces`, `otel.metrics`, `otel.logs`
 Output topics: `otel.flat.traces`, `otel.flat.metrics.*`, `otel.flat.logs`
@@ -11,7 +12,7 @@ Output topics: `otel.flat.traces`, `otel.flat.metrics.*`, `otel.flat.logs`
 ## Repo layout
 
 ```
-cmd/               — main binary
+cmd/nexus/        — main binary
 internal/
   consumer/       — Sarama Kafka consumer group
   producer/       — Sarama Kafka producer
@@ -23,7 +24,7 @@ internal/
 
 ```bash
 go build ./...
-go run ./cmd
+go run ./cmd/nexus
 ```
 
 ## Stack
