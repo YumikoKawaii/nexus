@@ -115,6 +115,7 @@ func flatGauge(b metricBase, dp NumberDataPoint) FlatGauge {
 		StartTimeUnix:         dp.StartTimeUnixNano,
 		Value:                 val,
 		Flags:                 dp.Flags,
+		Exemplars:             "[]",
 	}
 }
 

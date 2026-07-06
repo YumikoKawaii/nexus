@@ -2,7 +2,6 @@ package transform
 
 import (
 	"encoding/json"
-	"fmt"
 	"strconv"
 )
 
@@ -46,26 +45,16 @@ func anyValStr(v OTLPAny) string {
 }
 
 func serviceNameFrom(attrs []OTLPKv) string {
+	return attrValue(attrs, "service.name")
+}
+
+func attrValue(attrs []OTLPKv, key string) string {
 	for _, kv := range attrs {
-		if kv.Key == "service.name" {
+		if kv.Key == key {
 			return anyValStr(kv.Value)
 		}
 	}
 	return ""
-}
-
-func nanoToTime(nanoStr string) string {
-	if nanoStr == "" {
-		return ""
-	}
-	ns, err := strconv.ParseInt(nanoStr, 10, 64)
-	if err != nil {
-		return nanoStr
-	}
-	sec := ns / 1_000_000_000
-	nano := ns % 1_000_000_000
-	return fmt.Sprintf("%d-%02d-%02d %02d:%02d:%02d.%09d",
-		1970+sec/31557600, 1, 1, 0, 0, sec%60, nano) // rough; SR accepts epoch strings too
 }
 
 func marshalJSON(v any) string {

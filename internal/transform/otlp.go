@@ -25,6 +25,7 @@ type Span struct {
 	ParentSpanId      string       `json:"parentSpanId"`
 	Name              string       `json:"name"`
 	Kind              int32        `json:"kind"`
+	TraceState        string       `json:"traceState"`
 	StartTimeUnixNano string       `json:"startTimeUnixNano"`
 	EndTimeUnixNano   string       `json:"endTimeUnixNano"`
 	Attributes        []OTLPKV     `json:"attributes"`
