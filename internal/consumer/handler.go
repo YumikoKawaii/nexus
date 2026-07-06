@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"time"
 
 	"github.com/IBM/sarama"
 
@@ -21,7 +22,7 @@ type Handler struct {
 	cfg      config.Config
 	producer producer.Producer
 	logger   *slog.Logger
-	ch       chan incomingMsg
+	ch       chan []incomingMsg
 }
 
 func NewHandler(cfg config.Config, p producer.Producer, logger *slog.Logger) *Handler {
@@ -29,7 +30,7 @@ func NewHandler(cfg config.Config, p producer.Producer, logger *slog.Logger) *Ha
 		cfg:      cfg,
 		producer: p,
 		logger:   logger,
-		ch:       make(chan incomingMsg, cfg.ChannelBufferSize),
+		ch:       make(chan []incomingMsg, cfg.ChannelBufferSize),
 	}
 }
 
@@ -45,11 +46,13 @@ func (h *Handler) work(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case m, ok := <-h.ch:
+		case batch, ok := <-h.ch:
 			if !ok {
 				return
 			}
-			h.process(ctx, m.session, m.msg)
+			for _, m := range batch {
+				h.process(ctx, m.session, m.msg)
+			}
 		}
 	}
 }
@@ -58,10 +61,41 @@ func (h *Handler) Setup(_ sarama.ConsumerGroupSession) error   { return nil }
 func (h *Handler) Cleanup(_ sarama.ConsumerGroupSession) error { return nil }
 
 func (h *Handler) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
-	for msg := range claim.Messages() {
-		h.ch <- incomingMsg{session: session, msg: msg}
+	if !h.cfg.BatchEnabled {
+		for msg := range claim.Messages() {
+			h.ch <- []incomingMsg{{session: session, msg: msg}}
+		}
+		return nil
 	}
-	return nil
+
+	batch := make([]incomingMsg, 0, h.cfg.BatchSize)
+	ticker := time.NewTicker(h.cfg.BatchTimeout)
+	defer ticker.Stop()
+
+	flush := func() {
+		if len(batch) == 0 {
+			return
+		}
+		h.ch <- batch
+		batch = make([]incomingMsg, 0, h.cfg.BatchSize)
+	}
+
+	for {
+		select {
+		case msg, ok := <-claim.Messages():
+			if !ok {
+				flush()
+				return nil
+			}
+			batch = append(batch, incomingMsg{session: session, msg: msg})
+			if len(batch) >= h.cfg.BatchSize {
+				flush()
+				ticker.Reset(h.cfg.BatchTimeout)
+			}
+		case <-ticker.C:
+			flush()
+		}
+	}
 }
 
 func (h *Handler) process(ctx context.Context, session sarama.ConsumerGroupSession, msg *sarama.ConsumerMessage) {
