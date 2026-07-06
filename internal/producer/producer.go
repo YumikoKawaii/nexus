@@ -8,6 +8,7 @@ import (
 	"github.com/IBM/sarama"
 
 	"github.com/yumikokawaii/nexus/internal/config"
+	"github.com/yumikokawaii/nexus/internal/constants"
 )
 
 type Producer interface {
@@ -21,7 +22,7 @@ func New(cfg config.Config, logger *slog.Logger) (Producer, error) {
 		return nil, err
 	}
 
-	if cfg.ProducerMode == "async" {
+	if cfg.ProducerMode == constants.ProducerModeAsync {
 		scfg.Producer.Return.Successes = false
 		scfg.Producer.Return.Errors = true
 		p, err := sarama.NewAsyncProducer(cfg.KafkaBrokers, scfg)
@@ -113,9 +114,9 @@ func (a *asyncProducer) drainErrors(logger *slog.Logger) {
 
 func acksFromString(s string) sarama.RequiredAcks {
 	switch s {
-	case "none":
+	case constants.ProducerAcksNone:
 		return sarama.NoResponse
-	case "all":
+	case constants.ProducerAcksAll:
 		return sarama.WaitForAll
 	default:
 		return sarama.WaitForLocal
