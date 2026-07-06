@@ -29,6 +29,9 @@ type Config struct {
 	// Pipeline
 	ChannelBufferSize int
 	WorkerCount       int
+	BatchEnabled      bool
+	BatchSize         int
+	BatchTimeout      time.Duration
 
 	// Producer
 	ProducerMode           string // sync | async
@@ -64,6 +67,9 @@ func Load() Config {
 
 		ChannelBufferSize: envInt("CHANNEL_BUFFER_SIZE", 1000),
 		WorkerCount:       envInt("WORKER_COUNT", 4),
+		BatchEnabled:      envBool("BATCH_ENABLED", true),
+		BatchSize:         envInt("BATCH_SIZE", 100),
+		BatchTimeout:      envDuration("BATCH_TIMEOUT", 500*time.Millisecond),
 
 		ProducerMode:           env("PRODUCER_MODE", "async"),
 		ProducerAcks:           env("PRODUCER_ACKS", "local"),
