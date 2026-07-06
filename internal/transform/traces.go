@@ -49,7 +49,7 @@ func Traces(raw []byte) ([]FlatTrace, error) {
 				out = append(out, FlatTrace{
 					ServiceName:        svc,
 					SpanName:           span.Name,
-					Timestamp:          span.StartTimeUnixNano,
+					Timestamp:          coalesceStr(span.StartTimeUnixNano, span.EndTimeUnixNano),
 					TraceId:            span.TraceId,
 					SpanId:             span.SpanId,
 					ParentSpanId:       span.ParentSpanId,

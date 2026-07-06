@@ -62,11 +62,13 @@ func marshalJSON(v any) string {
 	return string(b)
 }
 
-func coalesceStr(a, b string) string {
-	if a != "" {
-		return a
+func coalesceStr(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
 	}
-	return b
+	return "0"
 }
 
 func float64OrZero(p *float64) float64 {
