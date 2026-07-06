@@ -56,6 +56,25 @@ func (s *StringUint64) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// StringUint64Slice unmarshals a JSON array of proto3 uint64 values (quoted or bare).
+type StringUint64Slice []uint64
+
+func (s *StringUint64Slice) UnmarshalJSON(b []byte) error {
+	var raw []json.RawMessage
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	*s = make(StringUint64Slice, len(raw))
+	for i, r := range raw {
+		var elem StringUint64
+		if err := elem.UnmarshalJSON(r); err != nil {
+			return err
+		}
+		(*s)[i] = uint64(elem)
+	}
+	return nil
+}
+
 type OTLPTracePayload struct {
 	ResourceSpans []ResourceSpan `json:"resourceSpans"`
 }
@@ -210,10 +229,10 @@ type HistogramDataPoint struct {
 	Attributes        []OTLPKv     `json:"attributes"`
 	StartTimeUnixNano string       `json:"startTimeUnixNano"`
 	TimeUnixNano      string       `json:"timeUnixNano"`
-	Count             StringUint64 `json:"count"`
-	Sum               *float64     `json:"sum,omitempty"`
-	BucketCounts      []uint64     `json:"bucketCounts"`
-	ExplicitBounds    []float64    `json:"explicitBounds"`
+	Count             StringUint64      `json:"count"`
+	Sum               *float64          `json:"sum,omitempty"`
+	BucketCounts      StringUint64Slice `json:"bucketCounts"`
+	ExplicitBounds    []float64         `json:"explicitBounds"`
 	Exemplars         []Exemplar   `json:"exemplars"`
 	Flags             int32        `json:"flags"`
 	Min               *float64     `json:"min,omitempty"`
@@ -237,8 +256,8 @@ type ExponentialHistogramDataPoint struct {
 }
 
 type BucketBands struct {
-	Offset       int32    `json:"offset"`
-	BucketCounts []uint64 `json:"bucketCounts"`
+	Offset       int32             `json:"offset"`
+	BucketCounts StringUint64Slice `json:"bucketCounts"`
 }
 
 type Exemplar struct {
