@@ -26,6 +26,9 @@ func main() {
 	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
 
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
 	p, err := producer.New(cfg, logger)
 	if err != nil {
 		logger.Error("producer init failed", "err", err)
@@ -33,25 +36,22 @@ func main() {
 	}
 	defer p.Close()
 
-	handler := consumer.NewHandler(cfg, p, logger)
+	h := consumer.NewHandler(cfg, p, logger)
+	h.Start(ctx)
 
-	group, err := consumer.NewGroup(cfg, handler)
+	group, err := consumer.NewGroup(cfg, h)
 	if err != nil {
 		logger.Error("consumer group init failed", "err", err)
 		os.Exit(1)
 	}
 	defer group.Close()
 
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
-
 	logger.Info("nexus started",
 		"brokers", cfg.KafkaBrokers,
 		"group", cfg.ConsumerGroupID,
-		"mode", cfg.ConsumeMode,
-		"batch_enabled", cfg.BatchEnabled,
-		"batch_size", cfg.BatchSize,
-		"batch_timeout", cfg.BatchTimeout,
+		"workers", cfg.WorkerCount,
+		"channel_buffer", cfg.ChannelBufferSize,
+		"producer_mode", cfg.ProducerMode,
 	)
 
 	if err := group.Run(ctx); err != nil && err != context.Canceled {

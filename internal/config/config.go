@@ -15,7 +15,6 @@ type Config struct {
 	OutputTopicPrefix string
 
 	// Consumer
-	ConsumeMode                string // sync | async
 	ConsumerOffsetReset        string // newest | oldest
 	ConsumerBalanceStrategy    string // roundrobin | range | sticky
 	ConsumerAutoCommit         bool
@@ -27,10 +26,9 @@ type Config struct {
 	ConsumerFetchDefault       int32
 	ConsumerFetchMax           int32
 
-	// Batch
-	BatchEnabled bool
-	BatchSize    int
-	BatchTimeout time.Duration
+	// Pipeline
+	ChannelBufferSize int
+	WorkerCount       int
 
 	// Producer
 	ProducerMode           string // sync | async
@@ -53,7 +51,6 @@ func Load() Config {
 		InputTopics:       splitCSV(env("INPUT_TOPICS", "otel.traces,otel.metrics,otel.logs")),
 		OutputTopicPrefix: env("OUTPUT_TOPIC_PREFIX", "otel.flat"),
 
-		ConsumeMode:                env("CONSUME_MODE", "async"),
 		ConsumerOffsetReset:        env("CONSUMER_OFFSET_RESET", "newest"),
 		ConsumerBalanceStrategy:    env("CONSUMER_BALANCE_STRATEGY", "roundrobin"),
 		ConsumerAutoCommit:         envBool("CONSUMER_AUTO_COMMIT", true),
@@ -65,9 +62,8 @@ func Load() Config {
 		ConsumerFetchDefault:       int32(envInt("CONSUMER_FETCH_DEFAULT_BYTES", 1048576)), // 1 MiB
 		ConsumerFetchMax:           int32(envInt("CONSUMER_FETCH_MAX_BYTES", 10485760)),    // 10 MiB
 
-		BatchEnabled: envBool("BATCH_ENABLED", true),
-		BatchSize:    envInt("BATCH_SIZE", 100),
-		BatchTimeout: envDuration("BATCH_TIMEOUT", 500*time.Millisecond),
+		ChannelBufferSize: envInt("CHANNEL_BUFFER_SIZE", 1000),
+		WorkerCount:       envInt("WORKER_COUNT", 4),
 
 		ProducerMode:           env("PRODUCER_MODE", "async"),
 		ProducerAcks:           env("PRODUCER_ACKS", "local"),
