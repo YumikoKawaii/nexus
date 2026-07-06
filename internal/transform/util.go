@@ -3,6 +3,7 @@ package transform
 import (
 	"encoding/json"
 	"strconv"
+	"time"
 )
 
 func attrsToJSON(kvs []OTLPKv) string {
@@ -69,6 +70,31 @@ func coalesceStr(vals ...string) string {
 		}
 	}
 	return "0"
+}
+
+func nanoToDatetime(nanoStr string) string {
+	if nanoStr == "" || nanoStr == "0" {
+		return "1970-01-01 00:00:00"
+	}
+	ns, err := strconv.ParseInt(nanoStr, 10, 64)
+	if err != nil || ns == 0 {
+		return "1970-01-01 00:00:00"
+	}
+	sec := ns / 1_000_000_000
+	return time.Unix(sec, 0).UTC().Format("2006-01-02 15:04:05")
+}
+
+// nanoToDatetimeNullable returns empty string (→ NULL) when nanoStr is absent/zero.
+func nanoToDatetimeNullable(nanoStr string) string {
+	if nanoStr == "" || nanoStr == "0" {
+		return ""
+	}
+	ns, err := strconv.ParseInt(nanoStr, 10, 64)
+	if err != nil || ns == 0 {
+		return ""
+	}
+	sec := ns / 1_000_000_000
+	return time.Unix(sec, 0).UTC().Format("2006-01-02 15:04:05")
 }
 
 func float64OrZero(p *float64) float64 {

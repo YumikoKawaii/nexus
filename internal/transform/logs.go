@@ -23,7 +23,7 @@ func Logs(raw []byte) ([]FlatLog, error) {
 				bodyBytes, _ := json.Marshal(rec.Body)
 				out = append(out, FlatLog{
 					ServiceName:           svc,
-					Timestamp:             coalesceStr(rec.TimeUnixNano),
+					Timestamp:             nanoToDatetime(coalesceStr(rec.TimeUnixNano)),
 					TraceId:               rec.TraceId,
 					SpanId:                rec.SpanId,
 					SeverityText:          rec.SeverityText,
