@@ -101,7 +101,7 @@ func flatGauge(b metricBase, dp NumberDataPoint) FlatGauge {
 	return FlatGauge{
 		ServiceName:           b.ServiceName,
 		MetricName:            b.MetricName,
-		TimeUnix:              dp.TimeUnixNano,
+		TimeUnix:              coalesceStr(dp.TimeUnixNano, dp.StartTimeUnixNano),
 		ResourceAttributes:    b.ResourceAttributes,
 		ResourceSchemaUrl:     b.ResourceSchemaUrl,
 		ScopeName:             b.ScopeName,
@@ -124,7 +124,7 @@ func flatSummary(b metricBase, dp SummaryDataPoint) FlatSummary {
 	return FlatSummary{
 		ServiceName:           b.ServiceName,
 		MetricName:            b.MetricName,
-		TimeUnix:              dp.TimeUnixNano,
+		TimeUnix:              coalesceStr(dp.TimeUnixNano, dp.StartTimeUnixNano),
 		ResourceAttributes:    b.ResourceAttributes,
 		ResourceSchemaUrl:     b.ResourceSchemaUrl,
 		ScopeName:             b.ScopeName,
@@ -150,7 +150,7 @@ func flatHistogram(b metricBase, dp HistogramDataPoint, aggTemp int32) FlatHisto
 	return FlatHistogram{
 		ServiceName:            b.ServiceName,
 		MetricName:             b.MetricName,
-		TimeUnix:               dp.TimeUnixNano,
+		TimeUnix:               coalesceStr(dp.TimeUnixNano, dp.StartTimeUnixNano),
 		ResourceAttributes:     b.ResourceAttributes,
 		ResourceSchemaUrl:      b.ResourceSchemaUrl,
 		ScopeName:              b.ScopeName,
@@ -181,7 +181,7 @@ func flatExponentialHistogram(b metricBase, dp ExponentialHistogramDataPoint, ag
 	return FlatExponentialHistogram{
 		ServiceName:            b.ServiceName,
 		MetricName:             b.MetricName,
-		TimeUnix:               dp.TimeUnixNano,
+		TimeUnix:               coalesceStr(dp.TimeUnixNano, dp.StartTimeUnixNano),
 		ResourceAttributes:     b.ResourceAttributes,
 		ResourceSchemaUrl:      b.ResourceSchemaUrl,
 		ScopeName:              b.ScopeName,
