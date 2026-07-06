@@ -19,7 +19,7 @@ func anyVal(v OTLPAny) any {
 	case v.StringValue != nil:
 		return *v.StringValue
 	case v.IntValue != nil:
-		return *v.IntValue
+		return int64(*v.IntValue)
 	case v.DoubleValue != nil:
 		return *v.DoubleValue
 	case v.BoolValue != nil:
@@ -34,7 +34,7 @@ func anyValStr(v OTLPAny) string {
 	case v.StringValue != nil:
 		return *v.StringValue
 	case v.IntValue != nil:
-		return strconv.FormatInt(*v.IntValue, 10)
+		return strconv.FormatInt(int64(*v.IntValue), 10)
 	case v.DoubleValue != nil:
 		return strconv.FormatFloat(*v.DoubleValue, 'f', -1, 64)
 	case v.BoolValue != nil:

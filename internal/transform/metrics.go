@@ -96,7 +96,7 @@ func flatGauge(b metricBase, dp NumberDataPoint) FlatGauge {
 	case dp.AsDouble != nil:
 		val = strconv.FormatFloat(*dp.AsDouble, 'f', -1, 64)
 	case dp.AsInt != nil:
-		val = strconv.FormatInt(*dp.AsInt, 10)
+		val = strconv.FormatInt(int64(*dp.AsInt), 10)
 	}
 	return FlatGauge{
 		ServiceName:           b.ServiceName,
@@ -136,7 +136,7 @@ func flatSummary(b metricBase, dp SummaryDataPoint) FlatSummary {
 		MetricUnit:            b.MetricUnit,
 		Attributes:            attrsToJSON(dp.Attributes),
 		StartTimeUnix:         dp.StartTimeUnixNano,
-		Count:                 dp.Count,
+		Count:                 uint64(dp.Count),
 		Sum:                   dp.Sum,
 		ValueAtQuantiles:      string(qvJSON),
 		Flags:                 dp.Flags,
@@ -162,7 +162,7 @@ func flatHistogram(b metricBase, dp HistogramDataPoint, aggTemp int32) FlatHisto
 		MetricUnit:             b.MetricUnit,
 		Attributes:             attrsToJSON(dp.Attributes),
 		StartTimeUnix:          dp.StartTimeUnixNano,
-		Count:                  dp.Count,
+		Count:                  uint64(dp.Count),
 		Sum:                    float64OrZero(dp.Sum),
 		BucketCounts:           string(bcJSON),
 		ExplicitBounds:         string(ebJSON),
@@ -193,10 +193,10 @@ func flatExponentialHistogram(b metricBase, dp ExponentialHistogramDataPoint, ag
 		MetricUnit:             b.MetricUnit,
 		Attributes:             attrsToJSON(dp.Attributes),
 		StartTimeUnix:          dp.StartTimeUnixNano,
-		Count:                  dp.Count,
+		Count:                  uint64(dp.Count),
 		Sum:                    float64OrZero(dp.Sum),
 		Scale:                  dp.Scale,
-		ZeroCount:              dp.ZeroCount,
+		ZeroCount:              uint64(dp.ZeroCount),
 		PositiveOffset:         dp.Positive.Offset,
 		PositiveBucketCounts:   string(posBC),
 		NegativeOffset:         dp.Negative.Offset,

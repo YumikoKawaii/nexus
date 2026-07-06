@@ -1,7 +1,60 @@
 package transform
 
+import (
+	"encoding/json"
+	"strconv"
+)
+
 // OTLP JSON wire format structs for unmarshalling raw Kafka messages.
 // Field names match the protobuf-JSON encoding from otelcol-contrib kafka exporter.
+
+// StringInt64 unmarshals a proto3 JSON int64, which may be quoted or bare.
+type StringInt64 int64
+
+func (s *StringInt64) UnmarshalJSON(b []byte) error {
+	if len(b) > 0 && b[0] == '"' {
+		var str string
+		if err := json.Unmarshal(b, &str); err != nil {
+			return err
+		}
+		v, err := strconv.ParseInt(str, 10, 64)
+		if err != nil {
+			return err
+		}
+		*s = StringInt64(v)
+		return nil
+	}
+	var v int64
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	*s = StringInt64(v)
+	return nil
+}
+
+// StringUint64 unmarshals a proto3 JSON uint64, which may be quoted or bare.
+type StringUint64 uint64
+
+func (s *StringUint64) UnmarshalJSON(b []byte) error {
+	if len(b) > 0 && b[0] == '"' {
+		var str string
+		if err := json.Unmarshal(b, &str); err != nil {
+			return err
+		}
+		v, err := strconv.ParseUint(str, 10, 64)
+		if err != nil {
+			return err
+		}
+		*s = StringUint64(v)
+		return nil
+	}
+	var v uint64
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	*s = StringUint64(v)
+	return nil
+}
 
 type OTLPTracePayload struct {
 	ResourceSpans []ResourceSpan `json:"resourceSpans"`
@@ -130,22 +183,22 @@ type ExponentialHistogramData struct {
 }
 
 type NumberDataPoint struct {
-	Attributes        []OTLPKv `json:"attributes"`
-	StartTimeUnixNano string   `json:"startTimeUnixNano"`
-	TimeUnixNano      string   `json:"timeUnixNano"`
-	AsDouble          *float64 `json:"asDouble,omitempty"`
-	AsInt             *int64   `json:"asInt,omitempty"`
-	Flags             int32    `json:"flags"`
+	Attributes        []OTLPKv      `json:"attributes"`
+	StartTimeUnixNano string        `json:"startTimeUnixNano"`
+	TimeUnixNano      string        `json:"timeUnixNano"`
+	AsDouble          *float64      `json:"asDouble,omitempty"`
+	AsInt             *StringInt64  `json:"asInt,omitempty"`
+	Flags             int32         `json:"flags"`
 }
 
 type SummaryDataPoint struct {
-	Attributes        []OTLPKv         `json:"attributes"`
-	StartTimeUnixNano string           `json:"startTimeUnixNano"`
-	TimeUnixNano      string           `json:"timeUnixNano"`
-	Count             uint64           `json:"count"`
-	Sum               float64          `json:"sum"`
-	QuantileValues    []QuantileValue  `json:"quantileValues"`
-	Flags             int32            `json:"flags"`
+	Attributes        []OTLPKv        `json:"attributes"`
+	StartTimeUnixNano string          `json:"startTimeUnixNano"`
+	TimeUnixNano      string          `json:"timeUnixNano"`
+	Count             StringUint64    `json:"count"`
+	Sum               float64         `json:"sum"`
+	QuantileValues    []QuantileValue `json:"quantileValues"`
+	Flags             int32           `json:"flags"`
 }
 
 type QuantileValue struct {
@@ -154,33 +207,33 @@ type QuantileValue struct {
 }
 
 type HistogramDataPoint struct {
-	Attributes        []OTLPKv  `json:"attributes"`
-	StartTimeUnixNano string    `json:"startTimeUnixNano"`
-	TimeUnixNano      string    `json:"timeUnixNano"`
-	Count             uint64    `json:"count"`
-	Sum               *float64  `json:"sum,omitempty"`
-	BucketCounts      []uint64  `json:"bucketCounts"`
-	ExplicitBounds    []float64 `json:"explicitBounds"`
-	Exemplars         []Exemplar `json:"exemplars"`
-	Flags             int32     `json:"flags"`
-	Min               *float64  `json:"min,omitempty"`
-	Max               *float64  `json:"max,omitempty"`
+	Attributes        []OTLPKv     `json:"attributes"`
+	StartTimeUnixNano string       `json:"startTimeUnixNano"`
+	TimeUnixNano      string       `json:"timeUnixNano"`
+	Count             StringUint64 `json:"count"`
+	Sum               *float64     `json:"sum,omitempty"`
+	BucketCounts      []uint64     `json:"bucketCounts"`
+	ExplicitBounds    []float64    `json:"explicitBounds"`
+	Exemplars         []Exemplar   `json:"exemplars"`
+	Flags             int32        `json:"flags"`
+	Min               *float64     `json:"min,omitempty"`
+	Max               *float64     `json:"max,omitempty"`
 }
 
 type ExponentialHistogramDataPoint struct {
-	Attributes        []OTLPKv    `json:"attributes"`
-	StartTimeUnixNano string      `json:"startTimeUnixNano"`
-	TimeUnixNano      string      `json:"timeUnixNano"`
-	Count             uint64      `json:"count"`
-	Sum               *float64    `json:"sum,omitempty"`
-	Scale             int32       `json:"scale"`
-	ZeroCount         uint64      `json:"zeroCount"`
-	Positive          BucketBands `json:"positive"`
-	Negative          BucketBands `json:"negative"`
-	Exemplars         []Exemplar  `json:"exemplars"`
-	Flags             int32       `json:"flags"`
-	Min               *float64    `json:"min,omitempty"`
-	Max               *float64    `json:"max,omitempty"`
+	Attributes        []OTLPKv     `json:"attributes"`
+	StartTimeUnixNano string       `json:"startTimeUnixNano"`
+	TimeUnixNano      string       `json:"timeUnixNano"`
+	Count             StringUint64 `json:"count"`
+	Sum               *float64     `json:"sum,omitempty"`
+	Scale             int32        `json:"scale"`
+	ZeroCount         StringUint64 `json:"zeroCount"`
+	Positive          BucketBands  `json:"positive"`
+	Negative          BucketBands  `json:"negative"`
+	Exemplars         []Exemplar   `json:"exemplars"`
+	Flags             int32        `json:"flags"`
+	Min               *float64     `json:"min,omitempty"`
+	Max               *float64     `json:"max,omitempty"`
 }
 
 type BucketBands struct {
@@ -217,8 +270,8 @@ type OTLPKv struct {
 type OTLPKV = OTLPKv
 
 type OTLPAny struct {
-	StringValue *string  `json:"stringValue,omitempty"`
-	IntValue    *int64   `json:"intValue,omitempty"`
-	DoubleValue *float64 `json:"doubleValue,omitempty"`
-	BoolValue   *bool    `json:"boolValue,omitempty"`
+	StringValue *string       `json:"stringValue,omitempty"`
+	IntValue    *StringInt64  `json:"intValue,omitempty"`
+	DoubleValue *float64      `json:"doubleValue,omitempty"`
+	BoolValue   *bool         `json:"boolValue,omitempty"`
 }
