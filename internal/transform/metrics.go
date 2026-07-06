@@ -37,7 +37,7 @@ func Metrics(raw []byte) (MetricsBatch, error) {
 					ScopeName:             sm.Scope.Name,
 					ScopeVersion:          sm.Scope.Version,
 					ScopeAttributes:       scopeAttrs,
-					ScopeDroppedAttrCount: sm.Scope.DroppedAttributesCount,
+					ScopeDroppedAttrCount: int64(sm.Scope.DroppedAttributesCount),
 					ScopeSchemaUrl:        sm.SchemaUrl,
 					MetricDescription:     m.Description,
 					MetricUnit:            m.Unit,

@@ -261,11 +261,11 @@ type BucketBands struct {
 }
 
 type Exemplar struct {
-	TimeUnixNano string   `json:"timeUnixNano"`
-	AsDouble     *float64 `json:"asDouble,omitempty"`
-	AsInt        *int64   `json:"asInt,omitempty"`
-	TraceId      string   `json:"traceId"`
-	SpanId       string   `json:"spanId"`
+	TimeUnixNano string        `json:"timeUnixNano"`
+	AsDouble     *float64      `json:"asDouble,omitempty"`
+	AsInt        *StringInt64  `json:"asInt,omitempty"`
+	TraceId      string        `json:"traceId"`
+	SpanId       string        `json:"spanId"`
 }
 
 type OTLPResource struct {
@@ -277,7 +277,7 @@ type OTLPScope struct {
 	Name                   string   `json:"name"`
 	Version                string   `json:"version"`
 	Attributes             []OTLPKv `json:"attributes"`
-	DroppedAttributesCount int64    `json:"droppedAttributesCount"`
+	DroppedAttributesCount StringInt64 `json:"droppedAttributesCount"`
 }
 
 type OTLPKv struct {
