@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
-	"sync"
-	"time"
 
 	"github.com/IBM/sarama"
 
@@ -14,16 +12,16 @@ import (
 	"github.com/yumikokawaii/nexus/internal/transform"
 )
 
+type incomingMsg struct {
+	session sarama.ConsumerGroupSession
+	msg     *sarama.ConsumerMessage
+}
+
 type Handler struct {
 	cfg      config.Config
 	producer producer.Producer
 	logger   *slog.Logger
-
-	// batch state — guarded by mu, used only when cfg.BatchEnabled
-	mu      sync.Mutex
-	batch   []*sarama.ConsumerMessage
-	timer   *time.Timer
-	session sarama.ConsumerGroupSession
+	ch       chan incomingMsg
 }
 
 func NewHandler(cfg config.Config, p producer.Producer, logger *slog.Logger) *Handler {
@@ -31,76 +29,39 @@ func NewHandler(cfg config.Config, p producer.Producer, logger *slog.Logger) *Ha
 		cfg:      cfg,
 		producer: p,
 		logger:   logger,
+		ch:       make(chan incomingMsg, cfg.ChannelBufferSize),
 	}
 }
 
-func (h *Handler) Setup(session sarama.ConsumerGroupSession) error {
-	if h.cfg.BatchEnabled {
-		h.mu.Lock()
-		h.batch = make([]*sarama.ConsumerMessage, 0, h.cfg.BatchSize)
-		h.session = session
-		h.timer = time.AfterFunc(h.cfg.BatchTimeout, h.timerFlush)
-		h.mu.Unlock()
+// Start spawns worker goroutines that drain the channel. Call before consuming.
+func (h *Handler) Start(ctx context.Context) {
+	for i := 0; i < h.cfg.WorkerCount; i++ {
+		go h.work(ctx)
 	}
-	return nil
 }
 
-func (h *Handler) Cleanup(_ sarama.ConsumerGroupSession) error {
-	if h.cfg.BatchEnabled {
-		h.mu.Lock()
-		if h.timer != nil {
-			h.timer.Stop()
+func (h *Handler) work(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case m, ok := <-h.ch:
+			if !ok {
+				return
+			}
+			h.process(ctx, m.session, m.msg)
 		}
-		h.flush(h.session)
-		h.mu.Unlock()
 	}
-	return nil
 }
+
+func (h *Handler) Setup(_ sarama.ConsumerGroupSession) error   { return nil }
+func (h *Handler) Cleanup(_ sarama.ConsumerGroupSession) error { return nil }
 
 func (h *Handler) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
 	for msg := range claim.Messages() {
-		if h.cfg.BatchEnabled {
-			h.mu.Lock()
-			h.batch = append(h.batch, msg)
-			if len(h.batch) >= h.cfg.BatchSize {
-				h.flush(session)
-			}
-			h.mu.Unlock()
-		} else {
-			h.process(context.Background(), session, msg)
-		}
+		h.ch <- incomingMsg{session: session, msg: msg}
 	}
 	return nil
-}
-
-func (h *Handler) timerFlush() {
-	h.mu.Lock()
-	h.flush(h.session)
-	if h.timer != nil {
-		h.timer.Reset(h.cfg.BatchTimeout)
-	}
-	h.mu.Unlock()
-}
-
-// flush drains the current batch. Caller must hold h.mu.
-func (h *Handler) flush(session sarama.ConsumerGroupSession) {
-	if len(h.batch) == 0 {
-		return
-	}
-	msgs := h.batch
-	h.batch = make([]*sarama.ConsumerMessage, 0, h.cfg.BatchSize)
-
-	if h.cfg.ConsumeMode == "async" {
-		go func() {
-			for _, m := range msgs {
-				h.process(context.Background(), session, m)
-			}
-		}()
-	} else {
-		for _, m := range msgs {
-			h.process(context.Background(), session, m)
-		}
-	}
 }
 
 func (h *Handler) process(ctx context.Context, session sarama.ConsumerGroupSession, msg *sarama.ConsumerMessage) {
