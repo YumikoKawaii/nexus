@@ -9,6 +9,7 @@ import (
 	"github.com/IBM/sarama"
 
 	"github.com/yumikokawaii/nexus/internal/config"
+	"github.com/yumikokawaii/nexus/internal/constants"
 	"github.com/yumikokawaii/nexus/internal/producer"
 	"github.com/yumikokawaii/nexus/internal/transform"
 )
@@ -101,11 +102,11 @@ func (h *Handler) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama
 func (h *Handler) process(ctx context.Context, session sarama.ConsumerGroupSession, msg *sarama.ConsumerMessage) {
 	var err error
 	switch msg.Topic {
-	case "otel.traces":
+	case constants.TopicTraces:
 		err = h.handleTraces(ctx, msg)
-	case "otel.logs":
+	case constants.TopicLogs:
 		err = h.handleLogs(ctx, msg)
-	case "otel.metrics":
+	case constants.TopicMetrics:
 		err = h.handleMetrics(ctx, msg)
 	}
 	if err != nil {
@@ -121,7 +122,7 @@ func (h *Handler) handleTraces(ctx context.Context, msg *sarama.ConsumerMessage)
 	}
 	for _, row := range rows {
 		b, _ := json.Marshal(row)
-		if err := h.producer.Produce(ctx, h.cfg.OutputTopicPrefix+".traces", row.TraceId, b); err != nil {
+		if err := h.producer.Produce(ctx, h.cfg.OutputTopicPrefix+"."+constants.FlatSuffixTraces, row.TraceId, b); err != nil {
 			h.logger.Error("produce trace failed", "traceId", row.TraceId, "err", err)
 		}
 	}
@@ -139,7 +140,7 @@ func (h *Handler) handleLogs(ctx context.Context, msg *sarama.ConsumerMessage) e
 		if key == "" {
 			key = row.ServiceName
 		}
-		if err := h.producer.Produce(ctx, h.cfg.OutputTopicPrefix+".logs", key, b); err != nil {
+		if err := h.producer.Produce(ctx, h.cfg.OutputTopicPrefix+"."+constants.FlatSuffixLogs, key, b); err != nil {
 			h.logger.Error("produce log failed", "err", err)
 		}
 	}
@@ -154,26 +155,26 @@ func (h *Handler) handleMetrics(ctx context.Context, msg *sarama.ConsumerMessage
 
 	produce := func(suffix, key string, v any) {
 		b, _ := json.Marshal(v)
-		topic := h.cfg.OutputTopicPrefix + ".metrics." + suffix
+		topic := h.cfg.OutputTopicPrefix + "." + suffix
 		if err := h.producer.Produce(ctx, topic, key, b); err != nil {
 			h.logger.Error("produce metric failed", "topic", topic, "err", err)
 		}
 	}
 
 	for _, row := range batch.Gauges {
-		produce("gauge", row.ServiceName+row.MetricName, row)
+		produce(constants.FlatSuffixMetricsGauge, row.ServiceName+row.MetricName, row)
 	}
 	for _, row := range batch.Sums {
-		produce("sum", row.ServiceName+row.MetricName, row)
+		produce(constants.FlatSuffixMetricsSum, row.ServiceName+row.MetricName, row)
 	}
 	for _, row := range batch.Summaries {
-		produce("summary", row.ServiceName+row.MetricName, row)
+		produce(constants.FlatSuffixMetricsSummary, row.ServiceName+row.MetricName, row)
 	}
 	for _, row := range batch.Histograms {
-		produce("histogram", row.ServiceName+row.MetricName, row)
+		produce(constants.FlatSuffixMetricsHistogram, row.ServiceName+row.MetricName, row)
 	}
 	for _, row := range batch.ExponentialHistograms {
-		produce("exponential_histogram", row.ServiceName+row.MetricName, row)
+		produce(constants.FlatSuffixMetricsExpHistogram, row.ServiceName+row.MetricName, row)
 	}
 	return nil
 }

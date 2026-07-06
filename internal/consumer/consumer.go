@@ -7,6 +7,7 @@ import (
 	"github.com/IBM/sarama"
 
 	"github.com/yumikokawaii/nexus/internal/config"
+	"github.com/yumikokawaii/nexus/internal/constants"
 )
 
 type Group struct {
@@ -39,16 +40,16 @@ func buildSaramaConfig(cfg config.Config) (*sarama.Config, error) {
 
 	// balance strategy
 	switch cfg.ConsumerBalanceStrategy {
-	case "range":
+	case constants.BalanceStrategyRange:
 		scfg.Consumer.Group.Rebalance.GroupStrategies = []sarama.BalanceStrategy{sarama.NewBalanceStrategyRange()}
-	case "sticky":
+	case constants.BalanceStrategySticky:
 		scfg.Consumer.Group.Rebalance.GroupStrategies = []sarama.BalanceStrategy{sarama.NewBalanceStrategySticky()}
 	default:
 		scfg.Consumer.Group.Rebalance.GroupStrategies = []sarama.BalanceStrategy{sarama.NewBalanceStrategyRoundRobin()}
 	}
 
 	// offset reset
-	if cfg.ConsumerOffsetReset == "oldest" {
+	if cfg.ConsumerOffsetReset == constants.OffsetResetOldest {
 		scfg.Consumer.Offsets.Initial = sarama.OffsetOldest
 	} else {
 		scfg.Consumer.Offsets.Initial = sarama.OffsetNewest

@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/yumikokawaii/nexus/internal/config"
+	"github.com/yumikokawaii/nexus/internal/constants"
 	"github.com/yumikokawaii/nexus/internal/consumer"
 	"github.com/yumikokawaii/nexus/internal/producer"
 )
@@ -17,11 +18,11 @@ func main() {
 
 	level := slog.LevelInfo
 	switch cfg.LogLevel {
-	case "debug":
+	case constants.LogLevelDebug:
 		level = slog.LevelDebug
-	case "warn":
+	case constants.LogLevelWarn:
 		level = slog.LevelWarn
-	case "error":
+	case constants.LogLevelError:
 		level = slog.LevelError
 	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
