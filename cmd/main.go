@@ -26,7 +26,7 @@ func main() {
 	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
 
-	p, err := producer.New(cfg.KafkaBrokers, producer.AcksFromString(cfg.ProducerAcks))
+	p, err := producer.New(cfg, logger)
 	if err != nil {
 		logger.Error("producer init failed", "err", err)
 		os.Exit(1)

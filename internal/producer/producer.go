@@ -1,48 +1,117 @@
 package producer
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/IBM/sarama"
+
+	"github.com/yumikokawaii/nexus/internal/config"
 )
 
 type Producer interface {
-	Produce(ctx interface{ Done() <-chan struct{} }, topic, key string, value []byte) error
+	Produce(ctx context.Context, topic, key string, value []byte) error
 	Close() error
 }
 
-type syncProducer struct {
-	p sarama.SyncProducer
-}
+func New(cfg config.Config, logger *slog.Logger) (Producer, error) {
+	scfg, err := buildSaramaConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
 
-func New(brokers []string, acks sarama.RequiredAcks) (Producer, error) {
-	cfg := sarama.NewConfig()
-	cfg.Producer.RequiredAcks = acks
-	cfg.Producer.Return.Successes = true
-	cfg.Producer.Compression = sarama.CompressionSnappy
+	if cfg.ProducerMode == "async" {
+		scfg.Producer.Return.Successes = false
+		scfg.Producer.Return.Errors = true
+		p, err := sarama.NewAsyncProducer(cfg.KafkaBrokers, scfg)
+		if err != nil {
+			return nil, fmt.Errorf("sarama async producer: %w", err)
+		}
+		ap := &asyncProducer{p: p}
+		go ap.drainErrors(logger)
+		return ap, nil
+	}
 
-	p, err := sarama.NewSyncProducer(brokers, cfg)
+	scfg.Producer.Return.Successes = true
+	p, err := sarama.NewSyncProducer(cfg.KafkaBrokers, scfg)
 	if err != nil {
 		return nil, fmt.Errorf("sarama sync producer: %w", err)
 	}
 	return &syncProducer{p: p}, nil
 }
 
-func (s *syncProducer) Produce(_ interface{ Done() <-chan struct{} }, topic, key string, value []byte) error {
-	msg := &sarama.ProducerMessage{
+func buildSaramaConfig(cfg config.Config) (*sarama.Config, error) {
+	scfg := sarama.NewConfig()
+
+	ver, err := sarama.ParseKafkaVersion(cfg.KafkaVersion)
+	if err != nil {
+		return nil, fmt.Errorf("invalid KAFKA_VERSION %q: %w", cfg.KafkaVersion, err)
+	}
+	scfg.Version = ver
+
+	scfg.Producer.RequiredAcks = acksFromString(cfg.ProducerAcks)
+	scfg.Producer.Compression = sarama.CompressionSnappy
+
+	scfg.Producer.Retry.Max = cfg.ProducerRetryMax
+	scfg.Producer.Retry.Backoff = cfg.ProducerRetryBackoff
+
+	if cfg.ProducerFlushMessages > 0 {
+		scfg.Producer.Flush.Messages = cfg.ProducerFlushMessages
+	}
+	if cfg.ProducerFlushBytes > 0 {
+		scfg.Producer.Flush.Bytes = cfg.ProducerFlushBytes
+	}
+	if cfg.ProducerFlushFrequency > 0 {
+		scfg.Producer.Flush.Frequency = cfg.ProducerFlushFrequency
+	}
+
+	return scfg, nil
+}
+
+// syncProducer blocks until the broker acks each message.
+type syncProducer struct {
+	p sarama.SyncProducer
+}
+
+func (s *syncProducer) Produce(_ context.Context, topic, key string, value []byte) error {
+	_, _, err := s.p.SendMessage(&sarama.ProducerMessage{
+		Topic: topic,
+		Key:   sarama.StringEncoder(key),
+		Value: sarama.ByteEncoder(value),
+	})
+	return err
+}
+
+func (s *syncProducer) Close() error { return s.p.Close() }
+
+// asyncProducer enqueues messages and flushes in the background.
+// Errors are logged and dropped (log+skip policy).
+type asyncProducer struct {
+	p sarama.AsyncProducer
+}
+
+func (a *asyncProducer) Produce(_ context.Context, topic, key string, value []byte) error {
+	a.p.Input() <- &sarama.ProducerMessage{
 		Topic: topic,
 		Key:   sarama.StringEncoder(key),
 		Value: sarama.ByteEncoder(value),
 	}
-	_, _, err := s.p.SendMessage(msg)
-	return err
+	return nil
 }
 
-func (s *syncProducer) Close() error {
-	return s.p.Close()
+func (a *asyncProducer) Close() error {
+	a.p.AsyncClose()
+	return nil
 }
 
-func AcksFromString(s string) sarama.RequiredAcks {
+func (a *asyncProducer) drainErrors(logger *slog.Logger) {
+	for err := range a.p.Errors() {
+		logger.Error("async producer error", "topic", err.Msg.Topic, "err", err.Err)
+	}
+}
+
+func acksFromString(s string) sarama.RequiredAcks {
 	switch s {
 	case "none":
 		return sarama.NoResponse

@@ -14,16 +14,35 @@ type Config struct {
 	InputTopics       []string
 	OutputTopicPrefix string
 
-	// Consume mode: "sync" or "async"
-	ConsumeMode string
+	// Consumer
+	ConsumeMode                string // sync | async
+	ConsumerOffsetReset        string // newest | oldest
+	ConsumerBalanceStrategy    string // roundrobin | range | sticky
+	ConsumerAutoCommit         bool
+	ConsumerAutoCommitInterval time.Duration
+	ConsumerSessionTimeout     time.Duration
+	ConsumerHeartbeatInterval  time.Duration
+	ConsumerRebalanceTimeout   time.Duration
+	ConsumerFetchMin           int32
+	ConsumerFetchDefault       int32
+	ConsumerFetchMax           int32
 
-	// Batch config
-	BatchEnabled  bool
-	BatchSize     int
-	BatchTimeout  time.Duration
+	// Batch
+	BatchEnabled bool
+	BatchSize    int
+	BatchTimeout time.Duration
 
-	// Producer acks: "none", "local", "all"
-	ProducerAcks string
+	// Producer
+	ProducerMode           string // sync | async
+	ProducerAcks           string // none | local | all
+	ProducerRetryMax       int
+	ProducerRetryBackoff   time.Duration
+	ProducerFlushMessages  int
+	ProducerFlushBytes     int
+	ProducerFlushFrequency time.Duration
+
+	// Kafka version (e.g. "3.6.0")
+	KafkaVersion string
 }
 
 func Load() Config {
@@ -34,13 +53,31 @@ func Load() Config {
 		InputTopics:       splitCSV(env("INPUT_TOPICS", "otel.traces,otel.metrics,otel.logs")),
 		OutputTopicPrefix: env("OUTPUT_TOPIC_PREFIX", "otel.flat"),
 
-		ConsumeMode: env("CONSUME_MODE", "async"), // sync | async
+		ConsumeMode:                env("CONSUME_MODE", "async"),
+		ConsumerOffsetReset:        env("CONSUMER_OFFSET_RESET", "newest"),
+		ConsumerBalanceStrategy:    env("CONSUMER_BALANCE_STRATEGY", "roundrobin"),
+		ConsumerAutoCommit:         envBool("CONSUMER_AUTO_COMMIT", true),
+		ConsumerAutoCommitInterval: envDuration("CONSUMER_AUTO_COMMIT_INTERVAL", 1*time.Second),
+		ConsumerSessionTimeout:     envDuration("CONSUMER_SESSION_TIMEOUT", 30*time.Second),
+		ConsumerHeartbeatInterval:  envDuration("CONSUMER_HEARTBEAT_INTERVAL", 3*time.Second),
+		ConsumerRebalanceTimeout:   envDuration("CONSUMER_REBALANCE_TIMEOUT", 60*time.Second),
+		ConsumerFetchMin:           int32(envInt("CONSUMER_FETCH_MIN_BYTES", 1)),
+		ConsumerFetchDefault:       int32(envInt("CONSUMER_FETCH_DEFAULT_BYTES", 1048576)), // 1 MiB
+		ConsumerFetchMax:           int32(envInt("CONSUMER_FETCH_MAX_BYTES", 10485760)),    // 10 MiB
 
 		BatchEnabled: envBool("BATCH_ENABLED", true),
 		BatchSize:    envInt("BATCH_SIZE", 100),
 		BatchTimeout: envDuration("BATCH_TIMEOUT", 500*time.Millisecond),
 
-		ProducerAcks: env("PRODUCER_ACKS", "local"), // none | local | all
+		ProducerMode:           env("PRODUCER_MODE", "async"),
+		ProducerAcks:           env("PRODUCER_ACKS", "local"),
+		ProducerRetryMax:       envInt("PRODUCER_RETRY_MAX", 3),
+		ProducerRetryBackoff:   envDuration("PRODUCER_RETRY_BACKOFF", 100*time.Millisecond),
+		ProducerFlushMessages:  envInt("PRODUCER_FLUSH_MESSAGES", 1000),
+		ProducerFlushBytes:     envInt("PRODUCER_FLUSH_BYTES", 1048576), // 1 MiB
+		ProducerFlushFrequency: envDuration("PRODUCER_FLUSH_FREQUENCY", 2*time.Second),
+
+		KafkaVersion: env("KAFKA_VERSION", "3.6.0"),
 	}
 }
 
