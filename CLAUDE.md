@@ -11,7 +11,7 @@ Output topics: `otel.flat.traces`, `otel.flat.metrics.*`, `otel.flat.logs`
 ## Repo layout
 
 ```
-cmd/nexus/        — main binary
+cmd/               — main binary
 internal/
   consumer/       — Sarama Kafka consumer group
   producer/       — Sarama Kafka producer
@@ -23,7 +23,7 @@ internal/
 
 ```bash
 go build ./...
-go run ./cmd/nexus
+go run ./cmd
 ```
 
 ## Stack

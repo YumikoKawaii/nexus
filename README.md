@@ -13,7 +13,7 @@ Consumes `otel.traces`, `otel.metrics`, `otel.logs` → explodes nested OTLP pro
 
 ```bash
 cp .env.example .env
-go run ./cmd/nexus
+go run ./cmd
 ```
 
 ## Environment
