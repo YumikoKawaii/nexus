@@ -8,6 +8,7 @@ import (
 
 	"github.com/yumikokawaii/nexus/internal/config"
 	"github.com/yumikokawaii/nexus/internal/constants"
+	"github.com/yumikokawaii/nexus/internal/kafka"
 )
 
 type Group struct {
@@ -17,7 +18,7 @@ type Group struct {
 }
 
 func NewGroup(cfg config.Config, handler *Handler) (*Group, error) {
-	scfg, err := buildSaramaConfig(cfg)
+	scfg, err := buildConsumerConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -29,14 +30,11 @@ func NewGroup(cfg config.Config, handler *Handler) (*Group, error) {
 	return &Group{cg: cg, handler: handler, topics: cfg.InputTopics}, nil
 }
 
-func buildSaramaConfig(cfg config.Config) (*sarama.Config, error) {
-	scfg := sarama.NewConfig()
-
-	ver, err := sarama.ParseKafkaVersion(cfg.KafkaVersion)
+func buildConsumerConfig(cfg config.Config) (*sarama.Config, error) {
+	scfg, err := kafka.BaseConfig(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("invalid KAFKA_VERSION %q: %w", cfg.KafkaVersion, err)
+		return nil, err
 	}
-	scfg.Version = ver
 
 	// balance strategy
 	switch cfg.ConsumerBalanceStrategy {

@@ -121,7 +121,11 @@ func (h *Handler) handleTraces(ctx context.Context, msg *sarama.ConsumerMessage)
 		return err
 	}
 	for _, row := range rows {
-		b, _ := json.Marshal(row)
+		b, err := json.Marshal(row)
+		if err != nil {
+			h.logger.Error("marshal trace failed, skipping", "traceId", row.TraceId, "err", err)
+			continue
+		}
 		if err := h.producer.Produce(ctx, h.cfg.OutputTopicPrefix+"."+constants.FlatSuffixTraces, row.TraceId, b); err != nil {
 			h.logger.Error("produce trace failed", "traceId", row.TraceId, "err", err)
 		}
@@ -135,7 +139,11 @@ func (h *Handler) handleLogs(ctx context.Context, msg *sarama.ConsumerMessage) e
 		return err
 	}
 	for _, row := range rows {
-		b, _ := json.Marshal(row)
+		b, err := json.Marshal(row)
+		if err != nil {
+			h.logger.Error("marshal log failed, skipping", "service", row.ServiceName, "err", err)
+			continue
+		}
 		key := row.TraceId
 		if key == "" {
 			key = row.ServiceName
@@ -154,8 +162,12 @@ func (h *Handler) handleMetrics(ctx context.Context, msg *sarama.ConsumerMessage
 	}
 
 	produce := func(suffix, key string, v any) {
-		b, _ := json.Marshal(v)
 		topic := h.cfg.OutputTopicPrefix + "." + suffix
+		b, err := json.Marshal(v)
+		if err != nil {
+			h.logger.Error("marshal metric failed, skipping", "topic", topic, "key", key, "err", err)
+			return
+		}
 		if err := h.producer.Produce(ctx, topic, key, b); err != nil {
 			h.logger.Error("produce metric failed", "topic", topic, "err", err)
 		}

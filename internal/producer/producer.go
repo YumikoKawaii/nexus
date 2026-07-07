@@ -9,6 +9,7 @@ import (
 
 	"github.com/yumikokawaii/nexus/internal/config"
 	"github.com/yumikokawaii/nexus/internal/constants"
+	"github.com/yumikokawaii/nexus/internal/kafka"
 )
 
 type Producer interface {
@@ -17,7 +18,7 @@ type Producer interface {
 }
 
 func New(cfg config.Config, logger *slog.Logger) (Producer, error) {
-	scfg, err := buildSaramaConfig(cfg)
+	scfg, err := buildProducerConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -42,14 +43,11 @@ func New(cfg config.Config, logger *slog.Logger) (Producer, error) {
 	return &syncProducer{p: p}, nil
 }
 
-func buildSaramaConfig(cfg config.Config) (*sarama.Config, error) {
-	scfg := sarama.NewConfig()
-
-	ver, err := sarama.ParseKafkaVersion(cfg.KafkaVersion)
+func buildProducerConfig(cfg config.Config) (*sarama.Config, error) {
+	scfg, err := kafka.BaseConfig(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("invalid KAFKA_VERSION %q: %w", cfg.KafkaVersion, err)
+		return nil, err
 	}
-	scfg.Version = ver
 
 	scfg.Producer.RequiredAcks = acksFromString(cfg.ProducerAcks)
 	scfg.Producer.Compression = sarama.CompressionSnappy
@@ -75,7 +73,10 @@ type syncProducer struct {
 	p sarama.SyncProducer
 }
 
-func (s *syncProducer) Produce(_ context.Context, topic, key string, value []byte) error {
+func (s *syncProducer) Produce(ctx context.Context, topic, key string, value []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	_, _, err := s.p.SendMessage(&sarama.ProducerMessage{
 		Topic: topic,
 		Key:   sarama.StringEncoder(key),
@@ -92,13 +93,18 @@ type asyncProducer struct {
 	p sarama.AsyncProducer
 }
 
-func (a *asyncProducer) Produce(_ context.Context, topic, key string, value []byte) error {
-	a.p.Input() <- &sarama.ProducerMessage{
+func (a *asyncProducer) Produce(ctx context.Context, topic, key string, value []byte) error {
+	msg := &sarama.ProducerMessage{
 		Topic: topic,
 		Key:   sarama.StringEncoder(key),
 		Value: sarama.ByteEncoder(value),
 	}
-	return nil
+	select {
+	case a.p.Input() <- msg:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (a *asyncProducer) Close() error {

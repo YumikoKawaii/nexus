@@ -10,10 +10,11 @@ Output topics: `otel.flat.traces`, `otel.flat.metrics.*`, `otel.flat.logs`
 ## Repo layout
 
 ```
-cmd/nexus/        — main binary
+cmd/              — main binary (package main)
 internal/
   consumer/       — Sarama Kafka consumer group
   producer/       — Sarama Kafka producer
+  kafka/          — shared Sarama base config (protocol version)
   transform/      — OTLP JSON → flat row mappers (traces, metrics, logs)
   config/         — env-var loading
 ```
@@ -22,7 +23,7 @@ internal/
 
 ```bash
 go build ./...
-go run ./cmd/nexus
+go run ./cmd
 ```
 
 ## Stack
