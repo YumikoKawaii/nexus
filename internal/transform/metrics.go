@@ -37,7 +37,7 @@ func Metrics(raw []byte) (MetricsBatch, error) {
 					ScopeName:             sm.Scope.Name,
 					ScopeVersion:          sm.Scope.Version,
 					ScopeAttributes:       scopeAttrs,
-					ScopeDroppedAttrCount: sm.Scope.DroppedAttributesCount,
+					ScopeDroppedAttrCount: int64(sm.Scope.DroppedAttributesCount),
 					ScopeSchemaUrl:        sm.SchemaUrl,
 					MetricDescription:     m.Description,
 					MetricUnit:            m.Unit,
@@ -96,12 +96,12 @@ func flatGauge(b metricBase, dp NumberDataPoint) FlatGauge {
 	case dp.AsDouble != nil:
 		val = strconv.FormatFloat(*dp.AsDouble, 'f', -1, 64)
 	case dp.AsInt != nil:
-		val = strconv.FormatInt(*dp.AsInt, 10)
+		val = strconv.FormatInt(int64(*dp.AsInt), 10)
 	}
 	return FlatGauge{
 		ServiceName:           b.ServiceName,
 		MetricName:            b.MetricName,
-		TimeUnix:              dp.TimeUnixNano,
+		TimeUnix:              nanoToDatetime(coalesceStr(dp.TimeUnixNano, dp.StartTimeUnixNano)),
 		ResourceAttributes:    b.ResourceAttributes,
 		ResourceSchemaUrl:     b.ResourceSchemaUrl,
 		ScopeName:             b.ScopeName,
@@ -112,9 +112,10 @@ func flatGauge(b metricBase, dp NumberDataPoint) FlatGauge {
 		MetricDescription:     b.MetricDescription,
 		MetricUnit:            b.MetricUnit,
 		Attributes:            attrsToJSON(dp.Attributes),
-		StartTimeUnix:         dp.StartTimeUnixNano,
+		StartTimeUnix:         nanoToDatetimeNullable(dp.StartTimeUnixNano),
 		Value:                 val,
 		Flags:                 dp.Flags,
+		Exemplars:             "[]",
 	}
 }
 
@@ -123,7 +124,7 @@ func flatSummary(b metricBase, dp SummaryDataPoint) FlatSummary {
 	return FlatSummary{
 		ServiceName:           b.ServiceName,
 		MetricName:            b.MetricName,
-		TimeUnix:              dp.TimeUnixNano,
+		TimeUnix:              nanoToDatetime(coalesceStr(dp.TimeUnixNano, dp.StartTimeUnixNano)),
 		ResourceAttributes:    b.ResourceAttributes,
 		ResourceSchemaUrl:     b.ResourceSchemaUrl,
 		ScopeName:             b.ScopeName,
@@ -134,8 +135,8 @@ func flatSummary(b metricBase, dp SummaryDataPoint) FlatSummary {
 		MetricDescription:     b.MetricDescription,
 		MetricUnit:            b.MetricUnit,
 		Attributes:            attrsToJSON(dp.Attributes),
-		StartTimeUnix:         dp.StartTimeUnixNano,
-		Count:                 dp.Count,
+		StartTimeUnix:         nanoToDatetimeNullable(dp.StartTimeUnixNano),
+		Count:                 uint64(dp.Count),
 		Sum:                   dp.Sum,
 		ValueAtQuantiles:      string(qvJSON),
 		Flags:                 dp.Flags,
@@ -149,7 +150,7 @@ func flatHistogram(b metricBase, dp HistogramDataPoint, aggTemp int32) FlatHisto
 	return FlatHistogram{
 		ServiceName:            b.ServiceName,
 		MetricName:             b.MetricName,
-		TimeUnix:               dp.TimeUnixNano,
+		TimeUnix:               coalesceStr(dp.TimeUnixNano, dp.StartTimeUnixNano),
 		ResourceAttributes:     b.ResourceAttributes,
 		ResourceSchemaUrl:      b.ResourceSchemaUrl,
 		ScopeName:              b.ScopeName,
@@ -161,7 +162,7 @@ func flatHistogram(b metricBase, dp HistogramDataPoint, aggTemp int32) FlatHisto
 		MetricUnit:             b.MetricUnit,
 		Attributes:             attrsToJSON(dp.Attributes),
 		StartTimeUnix:          dp.StartTimeUnixNano,
-		Count:                  dp.Count,
+		Count:                  uint64(dp.Count),
 		Sum:                    float64OrZero(dp.Sum),
 		BucketCounts:           string(bcJSON),
 		ExplicitBounds:         string(ebJSON),
@@ -180,7 +181,7 @@ func flatExponentialHistogram(b metricBase, dp ExponentialHistogramDataPoint, ag
 	return FlatExponentialHistogram{
 		ServiceName:            b.ServiceName,
 		MetricName:             b.MetricName,
-		TimeUnix:               dp.TimeUnixNano,
+		TimeUnix:               coalesceStr(dp.TimeUnixNano, dp.StartTimeUnixNano),
 		ResourceAttributes:     b.ResourceAttributes,
 		ResourceSchemaUrl:      b.ResourceSchemaUrl,
 		ScopeName:              b.ScopeName,
@@ -192,10 +193,10 @@ func flatExponentialHistogram(b metricBase, dp ExponentialHistogramDataPoint, ag
 		MetricUnit:             b.MetricUnit,
 		Attributes:             attrsToJSON(dp.Attributes),
 		StartTimeUnix:          dp.StartTimeUnixNano,
-		Count:                  dp.Count,
+		Count:                  uint64(dp.Count),
 		Sum:                    float64OrZero(dp.Sum),
 		Scale:                  dp.Scale,
-		ZeroCount:              dp.ZeroCount,
+		ZeroCount:              uint64(dp.ZeroCount),
 		PositiveOffset:         dp.Positive.Offset,
 		PositiveBucketCounts:   string(posBC),
 		NegativeOffset:         dp.Negative.Offset,

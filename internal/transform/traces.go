@@ -6,6 +6,21 @@ import (
 	"strconv"
 )
 
+var spanKindNames = map[int32]string{
+	0: "UNSPECIFIED",
+	1: "INTERNAL",
+	2: "SERVER",
+	3: "CLIENT",
+	4: "PRODUCER",
+	5: "CONSUMER",
+}
+
+var statusCodeNames = map[int32]string{
+	0: "STATUS_CODE_UNSET",
+	1: "STATUS_CODE_OK",
+	2: "STATUS_CODE_ERROR",
+}
+
 func Traces(raw []byte) ([]FlatTrace, error) {
 	var payload OTLPTracePayload
 	if err := json.Unmarshal(raw, &payload); err != nil {
@@ -21,22 +36,32 @@ func Traces(raw []byte) ([]FlatTrace, error) {
 			for _, span := range ss.Spans {
 				startNs, _ := strconv.ParseInt(span.StartTimeUnixNano, 10, 64)
 				endNs, _ := strconv.ParseInt(span.EndTimeUnixNano, 10, 64)
-				durationNs := endNs - startNs
+
+				spanKind := spanKindNames[span.Kind]
+				if spanKind == "" {
+					spanKind = strconv.Itoa(int(span.Kind))
+				}
+				statusCode := statusCodeNames[span.Status.Code]
+				if statusCode == "" {
+					statusCode = strconv.Itoa(int(span.Status.Code))
+				}
 
 				out = append(out, FlatTrace{
 					ServiceName:        svc,
+					SpanName:           span.Name,
+					Timestamp:          nanoToDatetime(coalesceStr(span.StartTimeUnixNano, span.EndTimeUnixNano)),
 					TraceId:            span.TraceId,
 					SpanId:             span.SpanId,
 					ParentSpanId:       span.ParentSpanId,
-					SpanName:           span.Name,
-					SpanKind:           span.Kind,
-					StartTime:          span.StartTimeUnixNano,
-					EndTime:            span.EndTimeUnixNano,
-					Duration:           durationNs,
-					StatusCode:         span.Status.Code,
-					StatusMessage:      span.Status.Message,
+					TraceState:         span.TraceState,
+					SpanKind:           spanKind,
 					ResourceAttributes: resAttrs,
+					ScopeName:          ss.Scope.Name,
+					ScopeVersion:       ss.Scope.Version,
 					SpanAttributes:     attrsToJSON(span.Attributes),
+					Duration:           endNs - startNs,
+					StatusCode:         statusCode,
+					StatusMessage:      span.Status.Message,
 					Events:             marshalJSON(span.Events),
 					Links:              marshalJSON(span.Links),
 				})

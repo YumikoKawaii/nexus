@@ -2,8 +2,8 @@ package transform
 
 import (
 	"encoding/json"
-	"fmt"
 	"strconv"
+	"time"
 )
 
 func attrsToJSON(kvs []OTLPKv) string {
@@ -20,7 +20,7 @@ func anyVal(v OTLPAny) any {
 	case v.StringValue != nil:
 		return *v.StringValue
 	case v.IntValue != nil:
-		return *v.IntValue
+		return int64(*v.IntValue)
 	case v.DoubleValue != nil:
 		return *v.DoubleValue
 	case v.BoolValue != nil:
@@ -35,7 +35,7 @@ func anyValStr(v OTLPAny) string {
 	case v.StringValue != nil:
 		return *v.StringValue
 	case v.IntValue != nil:
-		return strconv.FormatInt(*v.IntValue, 10)
+		return strconv.FormatInt(int64(*v.IntValue), 10)
 	case v.DoubleValue != nil:
 		return strconv.FormatFloat(*v.DoubleValue, 'f', -1, 64)
 	case v.BoolValue != nil:
@@ -46,31 +46,55 @@ func anyValStr(v OTLPAny) string {
 }
 
 func serviceNameFrom(attrs []OTLPKv) string {
+	return attrValue(attrs, "service.name")
+}
+
+func attrValue(attrs []OTLPKv, key string) string {
 	for _, kv := range attrs {
-		if kv.Key == "service.name" {
+		if kv.Key == key {
 			return anyValStr(kv.Value)
 		}
 	}
 	return ""
 }
 
-func nanoToTime(nanoStr string) string {
-	if nanoStr == "" {
-		return ""
-	}
-	ns, err := strconv.ParseInt(nanoStr, 10, 64)
-	if err != nil {
-		return nanoStr
-	}
-	sec := ns / 1_000_000_000
-	nano := ns % 1_000_000_000
-	return fmt.Sprintf("%d-%02d-%02d %02d:%02d:%02d.%09d",
-		1970+sec/31557600, 1, 1, 0, 0, sec%60, nano) // rough; SR accepts epoch strings too
-}
-
 func marshalJSON(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
+}
+
+func coalesceStr(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return "0"
+}
+
+func nanoToDatetime(nanoStr string) string {
+	if nanoStr == "" || nanoStr == "0" {
+		return "1970-01-01 00:00:00"
+	}
+	ns, err := strconv.ParseInt(nanoStr, 10, 64)
+	if err != nil || ns == 0 {
+		return "1970-01-01 00:00:00"
+	}
+	sec := ns / 1_000_000_000
+	return time.Unix(sec, 0).UTC().Format("2006-01-02 15:04:05")
+}
+
+// nanoToDatetimeNullable returns empty string (→ NULL) when nanoStr is absent/zero.
+func nanoToDatetimeNullable(nanoStr string) string {
+	if nanoStr == "" || nanoStr == "0" {
+		return ""
+	}
+	ns, err := strconv.ParseInt(nanoStr, 10, 64)
+	if err != nil || ns == 0 {
+		return ""
+	}
+	sec := ns / 1_000_000_000
+	return time.Unix(sec, 0).UTC().Format("2006-01-02 15:04:05")
 }
 
 func float64OrZero(p *float64) float64 {
