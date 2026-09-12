@@ -1,0 +1,77 @@
+replicaCount: 1
+
+image:
+  repository: yumikokawaii/nexus
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+podAnnotations: {}
+podLabels: {}
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# Application configuration. Rendered into a ConfigMap and exposed as env vars.
+# Values here map 1:1 to the env vars nexus reads (see .env.example).
+config:
+  KAFKA_BROKERS: ""
+  KAFKA_CONSUMER_GROUP: nexus
+  INPUT_TOPICS: otel.traces,otel.metrics,otel.logs
+  OUTPUT_TOPIC_PREFIX: otel.flat
+  LOG_LEVEL: info
+
+  CONSUMER_OFFSET_RESET: newest
+  CONSUMER_BALANCE_STRATEGY: roundrobin
+  CONSUMER_AUTO_COMMIT: "true"
+  CONSUMER_AUTO_COMMIT_INTERVAL: 1s
+  CONSUMER_SESSION_TIMEOUT: 30s
+  CONSUMER_HEARTBEAT_INTERVAL: 3s
+  CONSUMER_REBALANCE_TIMEOUT: 60s
+  CONSUMER_FETCH_MIN_BYTES: "1"
+  CONSUMER_FETCH_DEFAULT_BYTES: "1048576"
+  CONSUMER_FETCH_MAX_BYTES: "10485760"
+
+  CHANNEL_BUFFER_SIZE: "1000"
+  WORKER_COUNT: "4"
+  BATCH_ENABLED: "true"
+  BATCH_SIZE: "100"
+  BATCH_TIMEOUT: 500ms
+
+  PRODUCER_MODE: async
+  PRODUCER_ACKS: local
+  PRODUCER_RETRY_MAX: "3"
+  PRODUCER_RETRY_BACKOFF: 100ms
+  PRODUCER_FLUSH_MESSAGES: "1000"
+  PRODUCER_FLUSH_BYTES: "1048576"
+  PRODUCER_FLUSH_FREQUENCY: 2s
+
+# Extra env vars sourced from existing Secrets (e.g. SASL credentials).
+extraEnv: []
+extraEnvFrom: []
