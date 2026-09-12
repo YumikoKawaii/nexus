@@ -12,14 +12,13 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
-	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	colmetricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 )
 
-const maxBodyBytes = 16 << 20 // 16 MiB
+const maxBodyBytes = 16 << 20
 
-// HTTPServer serves OTLP/HTTP on /v1/{traces,metrics,logs}.
 type HTTPServer struct {
 	srv *http.Server
 	svc *Service

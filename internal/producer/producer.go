@@ -12,16 +12,12 @@ import (
 	"github.com/yumikokawaii/nexus/internal/constants"
 )
 
-// Producer publishes flat records to Kafka. In sync mode Produce blocks until
-// the broker acks; in async mode it enqueues and errors are logged and dropped
-// (log+skip policy).
 type Producer struct {
 	cl     *kgo.Client
 	async  bool
 	logger *slog.Logger
 }
 
-// New builds a Producer from config.
 func New(cfg config.Config, logger *slog.Logger) (*Producer, error) {
 	cl, err := kgo.NewClient(clientOptions(cfg)...)
 	if err != nil {
@@ -59,8 +55,6 @@ func clientOptions(cfg config.Config) []kgo.Opt {
 	return opts
 }
 
-// Produce publishes one record. In async mode it never returns an error;
-// delivery failures are logged by the completion callback.
 func (p *Producer) Produce(ctx context.Context, topic, key string, value []byte) error {
 	rec := &kgo.Record{Topic: topic, Key: []byte(key), Value: value}
 	if p.async {
@@ -74,7 +68,6 @@ func (p *Producer) Produce(ctx context.Context, topic, key string, value []byte)
 	return p.cl.ProduceSync(ctx, rec).FirstErr()
 }
 
-// Close flushes buffered records and shuts the client down.
 func (p *Producer) Close() error {
 	p.cl.Close()
 	return nil

@@ -20,6 +20,13 @@ produces to `otel.flat.*` Kafka topics for StarRocks Routine Load.
 
 HTTP accepts both `application/x-protobuf` and `application/json` bodies.
 
+## Delivery policy
+
+nexus acts as a prefilter in front of StarRocks. Transform and produce errors are
+logged and skipped rather than propagated — a malformed or unexpected record is
+dropped here so it can never break downstream Routine Load ingestion. OTLP clients
+always receive a success response; failures surface only in nexus logs.
+
 ## Run
 
 ```bash

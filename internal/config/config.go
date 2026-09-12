@@ -14,13 +14,11 @@ type Config struct {
 	LogLevel          string
 	OutputTopicPrefix string
 
-	// OTLP receiver
 	OTLPGRPCAddr string
 	OTLPHTTPAddr string
 
-	// Producer
-	ProducerMode           string // sync | async
-	ProducerAcks           string // none | local | all
+	ProducerMode           string
+	ProducerAcks           string
 	ProducerRetryMax       int
 	ProducerRetryBackoff   time.Duration
 	ProducerFlushMessages  int

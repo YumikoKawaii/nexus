@@ -8,13 +8,10 @@ import (
 
 	"google.golang.org/grpc"
 
-	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	colmetricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 )
-
-// Each OTLP export service declares a method named Export, so one struct
-// cannot implement all three; use a dedicated server per signal.
 
 type traceServer struct {
 	coltracepb.UnimplementedTraceServiceServer
@@ -46,7 +43,6 @@ func (m *metricsServer) Export(ctx context.Context, req *colmetricspb.ExportMetr
 	return &colmetricspb.ExportMetricsServiceResponse{}, nil
 }
 
-// GRPCServer wires the OTLP export services onto a grpc.Server.
 type GRPCServer struct {
 	srv  *grpc.Server
 	addr string
@@ -61,7 +57,6 @@ func NewGRPCServer(addr string, svc *Service) *GRPCServer {
 	return &GRPCServer{srv: srv, addr: addr}
 }
 
-// Start binds the listener and serves in a background goroutine.
 func (s *GRPCServer) Start(logger *slog.Logger) error {
 	ln, err := net.Listen("tcp", s.addr)
 	if err != nil {

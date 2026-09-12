@@ -9,7 +9,6 @@ import (
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 )
 
-// attrsToJSON renders a slice of OTLP KeyValue attributes as a flat JSON object.
 func attrsToJSON(kvs []*commonpb.KeyValue) string {
 	m := make(map[string]any, len(kvs))
 	for _, kv := range kvs {
@@ -19,7 +18,6 @@ func attrsToJSON(kvs []*commonpb.KeyValue) string {
 	return string(b)
 }
 
-// attrsToMap renders attributes as a map (for nested JSON like span events/links).
 func attrsToMap(kvs []*commonpb.KeyValue) map[string]any {
 	m := make(map[string]any, len(kvs))
 	for _, kv := range kvs {
@@ -96,8 +94,6 @@ func marshalJSON(v any) string {
 	return string(b)
 }
 
-// hexID renders an OTLP trace/span id (raw bytes) as lowercase hex.
-// Empty input yields an empty string.
 func hexID(b []byte) string {
 	if len(b) == 0 {
 		return ""
@@ -105,7 +101,6 @@ func hexID(b []byte) string {
 	return hex.EncodeToString(b)
 }
 
-// coalesceNano returns the first non-zero nanosecond timestamp.
 func coalesceNano(vals ...uint64) uint64 {
 	for _, v := range vals {
 		if v != 0 {
@@ -123,7 +118,6 @@ func nanoToDatetime(ns uint64) string {
 	return time.Unix(sec, 0).UTC().Format("2006-01-02 15:04:05")
 }
 
-// nanoToDatetimeNullable returns empty string (→ NULL) when ns is zero.
 func nanoToDatetimeNullable(ns uint64) string {
 	if ns == 0 {
 		return ""

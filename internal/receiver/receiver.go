@@ -5,29 +5,24 @@ import (
 	"encoding/json"
 	"log/slog"
 
-	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 	logspb "go.opentelemetry.io/proto/otlp/logs/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
+	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 
 	"github.com/yumikokawaii/nexus/internal/config"
 	"github.com/yumikokawaii/nexus/internal/constants"
 	"github.com/yumikokawaii/nexus/internal/transform"
 )
 
-// Producer is the subset of the Kafka producer the receiver depends on.
 type Producer interface {
 	Produce(ctx context.Context, topic, key string, value []byte) error
 }
-
-// Service holds the shared transform+produce pipeline used by both the gRPC
-// and HTTP OTLP frontends.
 type Service struct {
 	cfg      config.Config
 	producer Producer
 	logger   *slog.Logger
 }
 
-// NewService builds a Service around a Producer.
 func NewService(cfg config.Config, p Producer, logger *slog.Logger) *Service {
 	return &Service{cfg: cfg, producer: p, logger: logger}
 }
