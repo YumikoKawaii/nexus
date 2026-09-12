@@ -43,23 +43,28 @@ service:
   grpcPort: 4317
   httpPort: 4318
 
-# Application configuration. Rendered into a ConfigMap and exposed as env vars.
-# Values here map 1:1 to the env vars nexus reads (see .env.example).
+# Rendered verbatim into a config.yaml ConfigMap and mounted at /etc/nexus/config.yaml.
 config:
-  KAFKA_BROKERS: ""
-  OUTPUT_TOPIC_PREFIX: otel.flat
-  LOG_LEVEL: info
+  kafkaBrokers: []
+  outputTopicPrefix: otel.flat
+  logLevel: info
 
-  OTLP_GRPC_ADDR: ":4317"
-  OTLP_HTTP_ADDR: ":4318"
+  otlp:
+    grpcAddr: ":4317"
+    httpAddr: ":4318"
 
-  PRODUCER_MODE: async
-  PRODUCER_ACKS: local
-  PRODUCER_RETRY_MAX: "3"
-  PRODUCER_RETRY_BACKOFF: 100ms
-  PRODUCER_FLUSH_MESSAGES: "1000"
-  PRODUCER_FLUSH_BYTES: "1048576"
-  PRODUCER_FLUSH_FREQUENCY: 2s
+  # Topic-suffix allowlist; empty publishes all.
+  topics:
+    enabled: []
+
+  producer:
+    mode: async
+    acks: local
+    retryMax: 3
+    retryBackoff: 100ms
+    flushMessages: 1000
+    flushBytes: 1048576
+    flushFrequency: 2s
 
 # Extra env vars sourced from existing Secrets (e.g. SASL credentials).
 extraEnv: []

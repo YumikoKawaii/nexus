@@ -5,6 +5,5 @@ metadata:
   labels:
     {{- include "nexus.labels" . | nindent 4 }}
 data:
-  {{- range $k, $v := .Values.config }}
-  {{ $k }}: {{ $v | quote }}
-  {{- end }}
+  config.yaml: |
+    {{- toYaml .Values.config | nindent 4 }}

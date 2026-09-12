@@ -1,0 +1,20 @@
+kafkaBrokers:
+  - localhost:9092
+logLevel: info
+outputTopicPrefix: otel.flat
+
+otlp:
+  grpcAddr: ":4317"
+  httpAddr: ":4318"
+
+topics:
+  enabled: []
+
+producer:
+  mode: async
+  acks: local
+  retryMax: 3
+  retryBackoff: 100ms
+  flushMessages: 1000
+  flushBytes: 1048576
+  flushFrequency: 2s

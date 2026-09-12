@@ -7,13 +7,17 @@ require (
 	go.opentelemetry.io/proto/otlp v1.11.0
 	google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf v1.36.11
+	sigs.k8s.io/yaml v1.6.0
 )
 
 require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0 // indirect
 	github.com/klauspost/compress v1.18.7 // indirect
+	github.com/kr/text v0.2.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.27 // indirect
+	github.com/rogpeppe/go-internal v1.16.0 // indirect
 	github.com/twmb/franz-go/pkg/kmsg v1.13.1 // indirect
+	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect

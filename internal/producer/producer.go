@@ -25,31 +25,32 @@ func New(cfg config.Config, logger *slog.Logger) (*Producer, error) {
 	}
 	return &Producer{
 		cl:     cl,
-		async:  cfg.ProducerMode == constants.ProducerModeAsync,
+		async:  cfg.Producer.Mode == constants.ProducerModeAsync,
 		logger: logger,
 	}, nil
 }
 
 func clientOptions(cfg config.Config) []kgo.Opt {
+	p := cfg.Producer
 	opts := []kgo.Opt{
 		kgo.SeedBrokers(cfg.KafkaBrokers...),
-		kgo.RequiredAcks(acksFromString(cfg.ProducerAcks)),
+		kgo.RequiredAcks(acksFromString(p.Acks)),
 		kgo.ProducerBatchCompression(kgo.SnappyCompression()),
-		kgo.RecordRetries(cfg.ProducerRetryMax),
-		kgo.RetryBackoffFn(func(int) time.Duration { return cfg.ProducerRetryBackoff }),
+		kgo.RecordRetries(p.RetryMax),
+		kgo.RetryBackoffFn(func(int) time.Duration { return p.RetryBackoff.Unwrap() }),
 	}
 
-	if cfg.ProducerAcks != constants.ProducerAcksAll {
+	if p.Acks != constants.ProducerAcksAll {
 		opts = append(opts, kgo.DisableIdempotentWrite())
 	}
-	if cfg.ProducerFlushMessages > 0 {
-		opts = append(opts, kgo.MaxBufferedRecords(cfg.ProducerFlushMessages))
+	if p.FlushMessages > 0 {
+		opts = append(opts, kgo.MaxBufferedRecords(p.FlushMessages))
 	}
-	if cfg.ProducerFlushBytes > 0 {
-		opts = append(opts, kgo.ProducerBatchMaxBytes(int32(cfg.ProducerFlushBytes)))
+	if p.FlushBytes > 0 {
+		opts = append(opts, kgo.ProducerBatchMaxBytes(int32(p.FlushBytes)))
 	}
-	if cfg.ProducerFlushFrequency > 0 {
-		opts = append(opts, kgo.ProducerLinger(cfg.ProducerFlushFrequency))
+	if p.FlushFrequency > 0 {
+		opts = append(opts, kgo.ProducerLinger(p.FlushFrequency.Unwrap()))
 	}
 
 	return opts

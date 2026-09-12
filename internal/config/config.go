@@ -1,88 +1,90 @@
 package config
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
-	"strconv"
-	"strings"
 	"time"
+
+	"sigs.k8s.io/yaml"
 
 	"github.com/yumikokawaii/nexus/internal/constants"
 )
 
+type Duration time.Duration
+
+func (d Duration) Unwrap() time.Duration { return time.Duration(d) }
+
+func (d *Duration) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return err
+	}
+	v, err := time.ParseDuration(s)
+	if err != nil {
+		return err
+	}
+	*d = Duration(v)
+	return nil
+}
+
 type Config struct {
-	KafkaBrokers      []string
-	LogLevel          string
-	OutputTopicPrefix string
+	KafkaBrokers      []string `json:"kafkaBrokers"`
+	LogLevel          string   `json:"logLevel"`
+	OutputTopicPrefix string   `json:"outputTopicPrefix"`
 
-	OTLPGRPCAddr string
-	OTLPHTTPAddr string
-
-	ProducerMode           string
-	ProducerAcks           string
-	ProducerRetryMax       int
-	ProducerRetryBackoff   time.Duration
-	ProducerFlushMessages  int
-	ProducerFlushBytes     int
-	ProducerFlushFrequency time.Duration
+	OTLP     OTLP     `json:"otlp"`
+	Topics   Topics   `json:"topics"`
+	Producer Producer `json:"producer"`
 }
 
-func Load() Config {
+type OTLP struct {
+	GRPCAddr string `json:"grpcAddr"`
+	HTTPAddr string `json:"httpAddr"`
+}
+
+type Topics struct {
+	Enabled []string `json:"enabled"`
+}
+
+type Producer struct {
+	Mode           string   `json:"mode"`
+	Acks           string   `json:"acks"`
+	RetryMax       int      `json:"retryMax"`
+	RetryBackoff   Duration `json:"retryBackoff"`
+	FlushMessages  int      `json:"flushMessages"`
+	FlushBytes     int      `json:"flushBytes"`
+	FlushFrequency Duration `json:"flushFrequency"`
+}
+
+func Load(path string) (Config, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return Config{}, fmt.Errorf("read config %s: %w", path, err)
+	}
+	cfg := defaults()
+	if err := yaml.UnmarshalStrict(b, &cfg); err != nil {
+		return Config{}, fmt.Errorf("parse config %s: %w", path, err)
+	}
+	return cfg, nil
+}
+
+func defaults() Config {
 	return Config{
-		KafkaBrokers:      splitCSV(env("KAFKA_BROKERS", "")),
-		LogLevel:          env("LOG_LEVEL", constants.LogLevelInfo),
-		OutputTopicPrefix: env("OUTPUT_TOPIC_PREFIX", "otel.flat"),
-
-		OTLPGRPCAddr: env("OTLP_GRPC_ADDR", constants.DefaultOTLPGRPCAddr),
-		OTLPHTTPAddr: env("OTLP_HTTP_ADDR", constants.DefaultOTLPHTTPAddr),
-
-		ProducerMode:           env("PRODUCER_MODE", constants.ProducerModeAsync),
-		ProducerAcks:           env("PRODUCER_ACKS", constants.ProducerAcksLocal),
-		ProducerRetryMax:       envInt("PRODUCER_RETRY_MAX", constants.DefaultProducerRetryMax),
-		ProducerRetryBackoff:   envDuration("PRODUCER_RETRY_BACKOFF", 100*time.Millisecond),
-		ProducerFlushMessages:  envInt("PRODUCER_FLUSH_MESSAGES", constants.DefaultProducerFlushMessages),
-		ProducerFlushBytes:     envInt("PRODUCER_FLUSH_BYTES", constants.DefaultProducerFlushBytes),
-		ProducerFlushFrequency: envDuration("PRODUCER_FLUSH_FREQUENCY", 2*time.Second),
+		LogLevel:          constants.LogLevelInfo,
+		OutputTopicPrefix: "otel.flat",
+		OTLP: OTLP{
+			GRPCAddr: constants.DefaultOTLPGRPCAddr,
+			HTTPAddr: constants.DefaultOTLPHTTPAddr,
+		},
+		Producer: Producer{
+			Mode:           constants.ProducerModeAsync,
+			Acks:           constants.ProducerAcksLocal,
+			RetryMax:       constants.DefaultProducerRetryMax,
+			RetryBackoff:   Duration(100 * time.Millisecond),
+			FlushMessages:  constants.DefaultProducerFlushMessages,
+			FlushBytes:     constants.DefaultProducerFlushBytes,
+			FlushFrequency: Duration(2 * time.Second),
+		},
 	}
-}
-
-func env(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
-}
-
-func splitCSV(s string) []string {
-	parts := strings.Split(s, ",")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		if t := strings.TrimSpace(p); t != "" {
-			out = append(out, t)
-		}
-	}
-	return out
-}
-
-func envInt(key string, def int) int {
-	v := os.Getenv(key)
-	if v == "" {
-		return def
-	}
-	n, err := strconv.Atoi(v)
-	if err != nil {
-		return def
-	}
-	return n
-}
-
-func envDuration(key string, def time.Duration) time.Duration {
-	v := os.Getenv(key)
-	if v == "" {
-		return def
-	}
-	d, err := time.ParseDuration(v)
-	if err != nil {
-		return def
-	}
-	return d
 }

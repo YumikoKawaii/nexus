@@ -31,6 +31,8 @@ spec:
         - name: nexus
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --config=/etc/nexus/config.yaml
           ports:
             - name: grpc
               containerPort: {{ .Values.service.grpcPort }}
@@ -46,20 +48,26 @@ spec:
               port: grpc
             initialDelaySeconds: 5
             periodSeconds: 10
+          {{- with .Values.extraEnvFrom }}
           envFrom:
-            - configMapRef:
-                name: {{ include "nexus.fullname" . }}
-            {{- with .Values.extraEnvFrom }}
             {{- toYaml . | nindent 12 }}
-            {{- end }}
+          {{- end }}
           {{- with .Values.extraEnv }}
           env:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nexus
+              readOnly: true
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "nexus.fullname" . }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

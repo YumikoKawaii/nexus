@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -15,7 +16,14 @@ import (
 )
 
 func main() {
-	cfg := config.Load()
+	configPath := flag.String("config", "config.yaml", "path to config file")
+	flag.Parse()
+
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		slog.Error("config load failed", "err", err)
+		os.Exit(1)
+	}
 
 	level := slog.LevelInfo
 	switch cfg.LogLevel {
@@ -40,13 +48,13 @@ func main() {
 
 	svc := receiver.NewService(cfg, p, logger)
 
-	grpcSrv := receiver.NewGRPCServer(cfg.OTLPGRPCAddr, svc)
+	grpcSrv := receiver.NewGRPCServer(cfg.OTLP.GRPCAddr, svc)
 	if err := grpcSrv.Start(logger); err != nil {
 		logger.Error("otlp grpc start failed", "err", err)
 		os.Exit(1)
 	}
 
-	httpSrv := receiver.NewHTTPServer(cfg.OTLPHTTPAddr, svc)
+	httpSrv := receiver.NewHTTPServer(cfg.OTLP.HTTPAddr, svc)
 	if err := httpSrv.Start(logger); err != nil {
 		logger.Error("otlp http start failed", "err", err)
 		os.Exit(1)
@@ -54,9 +62,9 @@ func main() {
 
 	logger.Info("nexus started",
 		"brokers", cfg.KafkaBrokers,
-		"otlp_grpc", cfg.OTLPGRPCAddr,
-		"otlp_http", cfg.OTLPHTTPAddr,
-		"producer_mode", cfg.ProducerMode,
+		"otlp_grpc", cfg.OTLP.GRPCAddr,
+		"otlp_http", cfg.OTLP.HTTPAddr,
+		"producer_mode", cfg.Producer.Mode,
 	)
 
 	<-ctx.Done()

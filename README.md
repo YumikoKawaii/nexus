@@ -13,13 +13,13 @@
 
 ---
 
-**An OTLP Endpoint That Flattens the World for StarRocks**
+**An OTLP Endpoint That Flattens Telemetry into Kafka**
 
 [![Author](https://img.shields.io/badge/Author-Yumiko%20Sturluson-ff69b4?style=for-the-badge)](https://github.com/yumikokawaii)
 [![License](https://img.shields.io/badge/License-Private-9370DB?style=for-the-badge)]()
 [![Go](https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white)]()
 [![Protocol](https://img.shields.io/badge/OTLP-425CC7?style=for-the-badge&logo=opentelemetry&logoColor=white)]()
-[![Backend](https://img.shields.io/badge/StarRocks-1E88E5?style=for-the-badge)]()
+[![Transport](https://img.shields.io/badge/Kafka-231F20?style=for-the-badge&logo=apachekafka&logoColor=white)]()
 
 </div>
 
@@ -32,17 +32,13 @@
 Welcome to **nexus**!
 
 Telemetry arrives from everywhere at once — traces, metrics, logs, from every service, in the deeply nested shape OTLP
-was born in. StarRocks wants none of that nesting; it wants flat rows. `nexus` stands at the meeting point: it speaks
-the standard **OTLP** protocol on the wire, explodes every nested batch into flat records, and produces them to Kafka
-for StarRocks Routine Load.
+was born in. Downstreams want flat rows, not nesting. `nexus` stands at the meeting point: it speaks the standard
+**OTLP** protocol on the wire, explodes every nested batch into flat records, and produces one JSON message per row to
+Kafka — ready for whatever consumes it next.
 
 ```
-  otel sdk / collector ──OTLP (gRPC :4317 / HTTP :4318)──▶ nexus ──otel.flat.* (Kafka)──▶ StarRocks Routine Load
+  otel sdk / collector ──OTLP (gRPC :4317 / HTTP :4318)──▶ nexus ──otel.flat.* (Kafka)──▶ downstream
 ```
-
-Transformation is a prefilter, not a gamble. A malformed or unexpected record is **logged and dropped at the door** —
-never propagated — so nothing downstream can choke on it. OTLP clients always get a success response; every failure
-lives in the nexus logs alone.
 
 ## Architecture
 
@@ -51,43 +47,53 @@ nexus is a receiver in front of a producer, with a pure transform in between:
 - **Receive** — dual OTLP frontends (`internal/receiver`) accept gRPC on `:4317` and HTTP on `:4318`
   (`/v1/{traces,logs,metrics}`, protobuf or JSON). Both hand off to one shared `Service`.
 - **Transform** — `internal/transform` explodes each OTLP `ResourceSpans` / `ResourceLogs` / `ResourceMetrics`
-  into flat rows matching the StarRocks schema, fanning metrics out by type.
+  into flat rows, fanning metrics out by type.
 - **Produce** — `internal/producer` (franz-go) writes one JSON record per row to the matching `otel.flat.*` topic.
 
 ```
   receiver ──proto──▶ transform.Traces/Logs/Metrics ──rows──▶ producer ──▶ otel.flat.*
 ```
 
-Each signal lands on its own topic, ready for a StarRocks Routine Load:
+Each signal lands on its own topic, addressed by suffix:
 
-| Signal                   | Output topic                              |
-|--------------------------|-------------------------------------------|
-| Traces                   | `otel.flat.traces`                        |
-| Logs                     | `otel.flat.logs`                          |
-| Metrics — gauge          | `otel.flat.metrics.gauge`                 |
-| Metrics — sum            | `otel.flat.metrics.sum`                   |
-| Metrics — summary        | `otel.flat.metrics.summary`               |
-| Metrics — histogram      | `otel.flat.metrics.histogram`             |
-| Metrics — exp. histogram | `otel.flat.metrics.exponential_histogram` |
+| Signal                   | Topic suffix                    | Output topic                              |
+|--------------------------|---------------------------------|-------------------------------------------|
+| Traces                   | `traces`                        | `otel.flat.traces`                        |
+| Logs                     | `logs`                          | `otel.flat.logs`                          |
+| Metrics — gauge          | `metrics.gauge`                 | `otel.flat.metrics.gauge`                 |
+| Metrics — sum            | `metrics.sum`                   | `otel.flat.metrics.sum`                   |
+| Metrics — summary        | `metrics.summary`               | `otel.flat.metrics.summary`               |
+| Metrics — histogram      | `metrics.histogram`             | `otel.flat.metrics.histogram`             |
+| Metrics — exp. histogram | `metrics.exponential_histogram` | `otel.flat.metrics.exponential_histogram` |
 
 ## Configuration
 
-All configuration is via environment variables:
+nexus reads a single YAML file, given by `--config` (default `config.yaml`):
 
-| Variable                   | Default     | Purpose                             |
-|----------------------------|-------------|-------------------------------------|
-| `KAFKA_BROKERS`            | —           | Comma-separated broker list         |
-| `OUTPUT_TOPIC_PREFIX`      | `otel.flat` | Flat output topic prefix            |
-| `OTLP_GRPC_ADDR`           | `:4317`     | OTLP gRPC listen address            |
-| `OTLP_HTTP_ADDR`           | `:4318`     | OTLP HTTP listen address            |
-| `LOG_LEVEL`                | `info`      | `debug` / `info` / `warn` / `error` |
-| `PRODUCER_MODE`            | `async`     | `sync` or `async`                   |
-| `PRODUCER_ACKS`            | `local`     | `none` / `local` / `all`            |
-| `PRODUCER_RETRY_MAX`       | `3`         | Max produce retries                 |
-| `PRODUCER_RETRY_BACKOFF`   | `100ms`     | Backoff between retries             |
-| `PRODUCER_FLUSH_MESSAGES`  | `1000`      | Max buffered records                |
-| `PRODUCER_FLUSH_BYTES`     | `1048576`   | Max batch bytes                     |
-| `PRODUCER_FLUSH_FREQUENCY` | `2s`        | Producer linger                     |
+```yaml
+kafkaBrokers:
+  - localhost:9092
+outputTopicPrefix: otel.flat   # topics are <prefix>.<suffix>
+logLevel: info                 # debug | info | warn | error
+
+otlp:
+  grpcAddr: ":4317"
+  httpAddr: ":4318"
+
+topics:
+  # Allowlist of topic suffixes to publish. Empty (or omitted) = all.
+  # e.g. [traces, metrics.gauge] publishes only those two.
+  enabled: [ ]
+
+producer:
+  mode: async                  # sync | async
+  acks: local                  # none | local | all
+  retryMax: 3
+  retryBackoff: 100ms
+  flushMessages: 1000
+  flushBytes: 1048576
+  flushFrequency: 2s
+```
 
 ## Author
 
