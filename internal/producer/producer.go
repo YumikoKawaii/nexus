@@ -59,7 +59,7 @@ func clientOptions(cfg config.Config) []kgo.Opt {
 func (p *Producer) Produce(ctx context.Context, topic, key string, value []byte) error {
 	rec := &kgo.Record{Topic: topic, Key: []byte(key), Value: value}
 	if p.async {
-		p.cl.Produce(ctx, rec, func(r *kgo.Record, err error) {
+		p.cl.Produce(context.WithoutCancel(ctx), rec, func(r *kgo.Record, err error) {
 			if err != nil {
 				p.logger.Error("async producer error", "topic", r.Topic, "err", err)
 			}
