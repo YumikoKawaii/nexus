@@ -1,7 +1,7 @@
 replicaCount: 1
 
 image:
-  repository: yumikokawaii/nexus
+  repository: ghcr.io/yumikokawaii/nexus
   tag: ""
   pullPolicy: IfNotPresent
 
