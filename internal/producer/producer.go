@@ -12,26 +12,29 @@ import (
 	"github.com/yumikokawaii/nexus/internal/constants"
 )
 
-type Producer interface {
-	Produce(ctx context.Context, topic, key string, value []byte) error
-	Close() error
+// Producer publishes flat records to Kafka. In sync mode Produce blocks until
+// the broker acks; in async mode it enqueues and errors are logged and dropped
+// (log+skip policy).
+type Producer struct {
+	cl     *kgo.Client
+	async  bool
+	logger *slog.Logger
 }
 
-func New(cfg config.Config, logger *slog.Logger) (Producer, error) {
-	opts := buildClientOptions(cfg)
-
-	cl, err := kgo.NewClient(opts...)
+// New builds a Producer from config.
+func New(cfg config.Config, logger *slog.Logger) (*Producer, error) {
+	cl, err := kgo.NewClient(clientOptions(cfg)...)
 	if err != nil {
 		return nil, fmt.Errorf("franz-go client: %w", err)
 	}
-
-	if cfg.ProducerMode == constants.ProducerModeAsync {
-		return &asyncProducer{cl: cl, logger: logger}, nil
-	}
-	return &syncProducer{cl: cl}, nil
+	return &Producer{
+		cl:     cl,
+		async:  cfg.ProducerMode == constants.ProducerModeAsync,
+		logger: logger,
+	}, nil
 }
 
-func buildClientOptions(cfg config.Config) []kgo.Opt {
+func clientOptions(cfg config.Config) []kgo.Opt {
 	opts := []kgo.Opt{
 		kgo.SeedBrokers(cfg.KafkaBrokers...),
 		kgo.RequiredAcks(acksFromString(cfg.ProducerAcks)),
@@ -56,40 +59,24 @@ func buildClientOptions(cfg config.Config) []kgo.Opt {
 	return opts
 }
 
-// syncProducer blocks until the broker acks each message.
-type syncProducer struct {
-	cl *kgo.Client
-}
-
-func (s *syncProducer) Produce(ctx context.Context, topic, key string, value []byte) error {
+// Produce publishes one record. In async mode it never returns an error;
+// delivery failures are logged by the completion callback.
+func (p *Producer) Produce(ctx context.Context, topic, key string, value []byte) error {
 	rec := &kgo.Record{Topic: topic, Key: []byte(key), Value: value}
-	return s.cl.ProduceSync(ctx, rec).FirstErr()
+	if p.async {
+		p.cl.Produce(ctx, rec, func(r *kgo.Record, err error) {
+			if err != nil {
+				p.logger.Error("async producer error", "topic", r.Topic, "err", err)
+			}
+		})
+		return nil
+	}
+	return p.cl.ProduceSync(ctx, rec).FirstErr()
 }
 
-func (s *syncProducer) Close() error {
-	s.cl.Close()
-	return nil
-}
-
-// asyncProducer enqueues messages and flushes in the background.
-// Errors are logged and dropped (log+skip policy).
-type asyncProducer struct {
-	cl     *kgo.Client
-	logger *slog.Logger
-}
-
-func (a *asyncProducer) Produce(ctx context.Context, topic, key string, value []byte) error {
-	rec := &kgo.Record{Topic: topic, Key: []byte(key), Value: value}
-	a.cl.Produce(ctx, rec, func(r *kgo.Record, err error) {
-		if err != nil {
-			a.logger.Error("async producer error", "topic", r.Topic, "err", err)
-		}
-	})
-	return nil
-}
-
-func (a *asyncProducer) Close() error {
-	a.cl.Close()
+// Close flushes buffered records and shuts the client down.
+func (p *Producer) Close() error {
+	p.cl.Close()
 	return nil
 }
 

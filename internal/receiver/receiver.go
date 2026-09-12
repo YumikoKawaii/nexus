@@ -11,19 +11,24 @@ import (
 
 	"github.com/yumikokawaii/nexus/internal/config"
 	"github.com/yumikokawaii/nexus/internal/constants"
-	"github.com/yumikokawaii/nexus/internal/producer"
 	"github.com/yumikokawaii/nexus/internal/transform"
 )
+
+// Producer is the subset of the Kafka producer the receiver depends on.
+type Producer interface {
+	Produce(ctx context.Context, topic, key string, value []byte) error
+}
 
 // Service holds the shared transform+produce pipeline used by both the gRPC
 // and HTTP OTLP frontends.
 type Service struct {
 	cfg      config.Config
-	producer producer.Producer
+	producer Producer
 	logger   *slog.Logger
 }
 
-func NewService(cfg config.Config, p producer.Producer, logger *slog.Logger) *Service {
+// NewService builds a Service around a Producer.
+func NewService(cfg config.Config, p Producer, logger *slog.Logger) *Service {
 	return &Service{cfg: cfg, producer: p, logger: logger}
 }
 
