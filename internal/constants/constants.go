@@ -11,8 +11,9 @@ const (
 )
 
 const (
-	DefaultOTLPGRPCAddr = ":4317"
-	DefaultOTLPHTTPAddr = ":4318"
+	DefaultOTLPGRPCAddr          = ":4317"
+	DefaultOTLPHTTPAddr          = ":4318"
+	DefaultOTLPMaxRecvMsgSizeMiB = 4
 )
 
 const (

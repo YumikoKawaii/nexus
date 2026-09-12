@@ -1,6 +1,8 @@
 package receiver
 
 import (
+	"compress/flate"
+	"compress/gzip"
 	"context"
 	"fmt"
 	"io"
@@ -9,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/klauspost/compress/zstd"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
@@ -63,7 +66,7 @@ func (h *HTTPServer) handleTraces(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.svc.HandleTraces(r.Context(), req.GetResourceSpans())
-	writeResponse(w, isJSON, &coltracepb.ExportTraceServiceResponse{})
+	writeResponse(w, r, isJSON, &coltracepb.ExportTraceServiceResponse{})
 }
 
 func (h *HTTPServer) handleLogs(w http.ResponseWriter, r *http.Request) {
@@ -77,7 +80,7 @@ func (h *HTTPServer) handleLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.svc.HandleLogs(r.Context(), req.GetResourceLogs())
-	writeResponse(w, isJSON, &collogspb.ExportLogsServiceResponse{})
+	writeResponse(w, r, isJSON, &collogspb.ExportLogsServiceResponse{})
 }
 
 func (h *HTTPServer) handleMetrics(w http.ResponseWriter, r *http.Request) {
@@ -91,7 +94,7 @@ func (h *HTTPServer) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.svc.HandleMetrics(r.Context(), req.GetResourceMetrics())
-	writeResponse(w, isJSON, &colmetricspb.ExportMetricsServiceResponse{})
+	writeResponse(w, r, isJSON, &colmetricspb.ExportMetricsServiceResponse{})
 }
 
 func readBody(w http.ResponseWriter, r *http.Request) (body []byte, isJSON, ok bool) {
@@ -100,12 +103,37 @@ func readBody(w http.ResponseWriter, r *http.Request) (body []byte, isJSON, ok b
 		return nil, false, false
 	}
 	isJSON = strings.HasPrefix(r.Header.Get("Content-Type"), "application/json")
-	b, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
+	reader, err := decompressReader(r.Header.Get("Content-Encoding"), http.MaxBytesReader(w, r.Body, maxBodyBytes))
+	if err != nil {
+		httpError(w, http.StatusBadRequest, err)
+		return nil, false, false
+	}
+	defer reader.Close()
+	b, err := io.ReadAll(reader)
 	if err != nil {
 		httpError(w, http.StatusBadRequest, err)
 		return nil, false, false
 	}
 	return b, isJSON, true
+}
+
+func decompressReader(encoding string, body io.Reader) (io.ReadCloser, error) {
+	switch strings.ToLower(strings.TrimSpace(encoding)) {
+	case "", "identity":
+		return io.NopCloser(body), nil
+	case "gzip":
+		return gzip.NewReader(body)
+	case "deflate":
+		return flate.NewReader(body), nil
+	case "zstd":
+		zr, err := zstd.NewReader(body)
+		if err != nil {
+			return nil, err
+		}
+		return zr.IOReadCloser(), nil
+	default:
+		return nil, fmt.Errorf("unsupported content-encoding %q", encoding)
+	}
 }
 
 func unmarshal(body []byte, isJSON bool, msg proto.Message) error {
@@ -115,7 +143,7 @@ func unmarshal(body []byte, isJSON bool, msg proto.Message) error {
 	return proto.Unmarshal(body, msg)
 }
 
-func writeResponse(w http.ResponseWriter, isJSON bool, msg proto.Message) {
+func writeResponse(w http.ResponseWriter, r *http.Request, isJSON bool, msg proto.Message) {
 	var (
 		b   []byte
 		err error
@@ -131,8 +159,25 @@ func writeResponse(w http.ResponseWriter, isJSON bool, msg proto.Message) {
 		httpError(w, http.StatusInternalServerError, err)
 		return
 	}
+	if acceptsGzip(r) {
+		w.Header().Set("Content-Encoding", "gzip")
+		w.WriteHeader(http.StatusOK)
+		gz := gzip.NewWriter(w)
+		defer gz.Close()
+		_, _ = gz.Write(b)
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(b)
+}
+
+func acceptsGzip(r *http.Request) bool {
+	for _, enc := range strings.Split(r.Header.Get("Accept-Encoding"), ",") {
+		if strings.EqualFold(strings.TrimSpace(strings.SplitN(enc, ";", 2)[0]), "gzip") {
+			return true
+		}
+	}
+	return false
 }
 
 func httpError(w http.ResponseWriter, code int, err error) {

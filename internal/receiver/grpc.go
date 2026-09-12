@@ -7,6 +7,7 @@ import (
 	"net"
 
 	"google.golang.org/grpc"
+	_ "google.golang.org/grpc/encoding/gzip"
 
 	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	colmetricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
@@ -49,8 +50,10 @@ type GRPCServer struct {
 	ln   net.Listener
 }
 
-func NewGRPCServer(addr string, svc *Service) *GRPCServer {
-	srv := grpc.NewServer()
+func NewGRPCServer(addr string, maxRecvMsgSizeMiB int, svc *Service) *GRPCServer {
+	srv := grpc.NewServer(
+		grpc.MaxRecvMsgSize(maxRecvMsgSizeMiB * 1024 * 1024),
+	)
 	coltracepb.RegisterTraceServiceServer(srv, &traceServer{svc: svc})
 	collogspb.RegisterLogsServiceServer(srv, &logsServer{svc: svc})
 	colmetricspb.RegisterMetricsServiceServer(srv, &metricsServer{svc: svc})

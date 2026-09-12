@@ -45,10 +45,10 @@ Kafka — ready for whatever consumes it next.
 nexus is a receiver in front of a producer, with a pure transform in between:
 
 - **Receive** — dual OTLP frontends (`internal/receiver`) accept gRPC on `:4317` and HTTP on `:4318`
-  (`/v1/{traces,logs,metrics}`, protobuf or JSON). Both hand off to one shared `Service`.
-- **Transform** — `internal/transform` explodes each OTLP `ResourceSpans` / `ResourceLogs` / `ResourceMetrics`
-  into flat rows, fanning metrics out by type.
-- **Produce** — `internal/producer` (franz-go) writes one JSON record per row to the matching `otel.flat.*` topic.
+  (`/v1/{traces,logs,metrics}`, protobuf or JSON, with standard compression)
+- **Transform** — explodes each OTLP `ResourceSpans` / `ResourceLogs` / `ResourceMetrics` into flat rows, fanning
+  metrics out by type.
+- **Produce** — writes one JSON record per row to the matching `otel.flat.*` topic.
 
 ```
   receiver ──proto──▶ transform.Traces/Logs/Metrics ──rows──▶ producer ──▶ otel.flat.*
@@ -79,6 +79,7 @@ logLevel: info                 # debug | info | warn | error
 otlp:
   grpcAddr: ":4317"
   httpAddr: ":4318"
+  maxRecvMsgSizeMiB: 4         # max decoded OTLP request size
 
 topics:
   # Allowlist of topic suffixes to publish. Empty (or omitted) = all.

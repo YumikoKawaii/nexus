@@ -48,7 +48,7 @@ func main() {
 
 	svc := receiver.NewService(cfg, p, logger)
 
-	grpcSrv := receiver.NewGRPCServer(cfg.OTLP.GRPCAddr, svc)
+	grpcSrv := receiver.NewGRPCServer(cfg.OTLP.GRPCAddr, cfg.OTLP.MaxRecvMsgSizeMiB, svc)
 	if err := grpcSrv.Start(logger); err != nil {
 		logger.Error("otlp grpc start failed", "err", err)
 		os.Exit(1)

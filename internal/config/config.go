@@ -39,8 +39,9 @@ type Config struct {
 }
 
 type OTLP struct {
-	GRPCAddr string `json:"grpcAddr"`
-	HTTPAddr string `json:"httpAddr"`
+	GRPCAddr          string `json:"grpcAddr"`
+	HTTPAddr          string `json:"httpAddr"`
+	MaxRecvMsgSizeMiB int    `json:"maxRecvMsgSizeMiB"`
 }
 
 type Topics struct {
@@ -74,8 +75,9 @@ func defaults() Config {
 		LogLevel:          constants.LogLevelInfo,
 		OutputTopicPrefix: "otel.flat",
 		OTLP: OTLP{
-			GRPCAddr: constants.DefaultOTLPGRPCAddr,
-			HTTPAddr: constants.DefaultOTLPHTTPAddr,
+			GRPCAddr:          constants.DefaultOTLPGRPCAddr,
+			HTTPAddr:          constants.DefaultOTLPHTTPAddr,
+			MaxRecvMsgSizeMiB: constants.DefaultOTLPMaxRecvMsgSizeMiB,
 		},
 		Producer: Producer{
 			Mode:           constants.ProducerModeAsync,

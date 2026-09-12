@@ -6,6 +6,7 @@ outputTopicPrefix: otel.flat
 otlp:
   grpcAddr: ":4317"
   httpAddr: ":4318"
+  maxRecvMsgSizeMiB: 4
 
 topics:
   enabled: []
