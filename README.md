@@ -7,8 +7,8 @@ Consumes `otel.traces`, `otel.metrics`, `otel.logs` → explodes nested OTLP pro
 
 ## Stack
 
-- Go 1.25
-- [Sarama](https://github.com/IBM/sarama) — Kafka consumer/producer
+- Go 1.27
+- [franz-go](https://github.com/twmb/franz-go) — Kafka consumer/producer
 
 ## Run
 

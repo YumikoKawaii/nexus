@@ -2,84 +2,98 @@ package consumer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
-	"github.com/IBM/sarama"
+	"github.com/twmb/franz-go/pkg/kgo"
 
 	"github.com/yumikokawaii/nexus/internal/config"
 	"github.com/yumikokawaii/nexus/internal/constants"
 )
 
 type Group struct {
-	cg      sarama.ConsumerGroup
+	cl      *kgo.Client
 	handler *Handler
-	topics  []string
 }
 
 func NewGroup(cfg config.Config, handler *Handler) (*Group, error) {
-	scfg, err := buildSaramaConfig(cfg)
+	opts, err := buildClientOptions(cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	cg, err := sarama.NewConsumerGroup(cfg.KafkaBrokers, cfg.ConsumerGroupID, scfg)
+	cl, err := kgo.NewClient(opts...)
 	if err != nil {
-		return nil, fmt.Errorf("sarama consumer group: %w", err)
+		return nil, fmt.Errorf("franz-go consumer client: %w", err)
 	}
-	return &Group{cg: cg, handler: handler, topics: cfg.InputTopics}, nil
+	return &Group{cl: cl, handler: handler}, nil
 }
 
-func buildSaramaConfig(cfg config.Config) (*sarama.Config, error) {
-	scfg := sarama.NewConfig()
-
-	ver, err := sarama.ParseKafkaVersion(cfg.KafkaVersion)
-	if err != nil {
-		return nil, fmt.Errorf("invalid KAFKA_VERSION %q: %w", cfg.KafkaVersion, err)
-	}
-	scfg.Version = ver
-
-	// balance strategy
+func buildClientOptions(cfg config.Config) ([]kgo.Opt, error) {
+	var balancer kgo.GroupBalancer
 	switch cfg.ConsumerBalanceStrategy {
 	case constants.BalanceStrategyRange:
-		scfg.Consumer.Group.Rebalance.GroupStrategies = []sarama.BalanceStrategy{sarama.NewBalanceStrategyRange()}
+		balancer = kgo.RangeBalancer()
 	case constants.BalanceStrategySticky:
-		scfg.Consumer.Group.Rebalance.GroupStrategies = []sarama.BalanceStrategy{sarama.NewBalanceStrategySticky()}
+		balancer = kgo.StickyBalancer()
 	default:
-		scfg.Consumer.Group.Rebalance.GroupStrategies = []sarama.BalanceStrategy{sarama.NewBalanceStrategyRoundRobin()}
+		balancer = kgo.RoundRobinBalancer()
 	}
 
-	// offset reset
+	offset := kgo.NewOffset().AtEnd()
 	if cfg.ConsumerOffsetReset == constants.OffsetResetOldest {
-		scfg.Consumer.Offsets.Initial = sarama.OffsetOldest
-	} else {
-		scfg.Consumer.Offsets.Initial = sarama.OffsetNewest
+		offset = kgo.NewOffset().AtStart()
 	}
 
-	scfg.Consumer.Offsets.AutoCommit.Enable = cfg.ConsumerAutoCommit
-	scfg.Consumer.Offsets.AutoCommit.Interval = cfg.ConsumerAutoCommitInterval
+	opts := []kgo.Opt{
+		kgo.SeedBrokers(cfg.KafkaBrokers...),
+		kgo.ConsumerGroup(cfg.ConsumerGroupID),
+		kgo.ConsumeTopics(cfg.InputTopics...),
+		kgo.Balancers(balancer),
+		kgo.ConsumeResetOffset(offset),
+		kgo.SessionTimeout(cfg.ConsumerSessionTimeout),
+		kgo.HeartbeatInterval(cfg.ConsumerHeartbeatInterval),
+		kgo.RebalanceTimeout(cfg.ConsumerRebalanceTimeout),
+		kgo.FetchMinBytes(cfg.ConsumerFetchMin),
+		kgo.FetchMaxBytes(cfg.ConsumerFetchMax),
+		kgo.DisableAutoCommit(),
+	}
 
-	scfg.Consumer.Group.Session.Timeout = cfg.ConsumerSessionTimeout
-	scfg.Consumer.Group.Heartbeat.Interval = cfg.ConsumerHeartbeatInterval
-	scfg.Consumer.Group.Rebalance.Timeout = cfg.ConsumerRebalanceTimeout
+	if cfg.ConsumerAutoCommit {
+		opts = append(opts,
+			kgo.AutoCommitMarks(),
+			kgo.AutoCommitInterval(cfg.ConsumerAutoCommitInterval),
+		)
+	}
 
-	scfg.Consumer.Fetch.Min = cfg.ConsumerFetchMin
-	scfg.Consumer.Fetch.Default = cfg.ConsumerFetchDefault
-	scfg.Consumer.Fetch.Max = cfg.ConsumerFetchMax
-
-	return scfg, nil
+	return opts, nil
 }
 
 func (g *Group) Run(ctx context.Context) error {
 	for {
-		if err := g.cg.Consume(ctx, g.topics, g.handler); err != nil {
-			return fmt.Errorf("consume: %w", err)
+		fetches := g.cl.PollFetches(ctx)
+		if fetches.IsClientClosed() {
+			return nil
 		}
-		if ctx.Err() != nil {
-			return ctx.Err()
+		if err := ctx.Err(); err != nil {
+			return err
 		}
+
+		var fetchErr error
+		fetches.EachError(func(topic string, partition int32, err error) {
+			if !errors.Is(err, context.Canceled) {
+				fetchErr = fmt.Errorf("fetch %s[%d]: %w", topic, partition, err)
+			}
+		})
+		if fetchErr != nil {
+			return fetchErr
+		}
+
+		g.handler.Dispatch(ctx, g.cl, fetches)
 	}
 }
 
 func (g *Group) Close() error {
-	return g.cg.Close()
+	g.cl.Close()
+	return nil
 }

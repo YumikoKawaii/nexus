@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/IBM/sarama"
+	"github.com/twmb/franz-go/pkg/kgo"
 
 	"github.com/yumikokawaii/nexus/internal/config"
 	"github.com/yumikokawaii/nexus/internal/constants"
@@ -15,8 +15,7 @@ import (
 )
 
 type incomingMsg struct {
-	session sarama.ConsumerGroupSession
-	msg     *sarama.ConsumerMessage
+	rec *kgo.Record
 }
 
 type Handler struct {
@@ -24,6 +23,7 @@ type Handler struct {
 	producer producer.Producer
 	logger   *slog.Logger
 	ch       chan []incomingMsg
+	cl       *kgo.Client
 }
 
 func NewHandler(cfg config.Config, p producer.Producer, logger *slog.Logger) *Handler {
@@ -52,71 +52,72 @@ func (h *Handler) work(ctx context.Context) {
 				return
 			}
 			for _, m := range batch {
-				h.process(ctx, m.session, m.msg)
+				h.process(ctx, m.rec)
 			}
 		}
 	}
 }
 
-func (h *Handler) Setup(_ sarama.ConsumerGroupSession) error   { return nil }
-func (h *Handler) Cleanup(_ sarama.ConsumerGroupSession) error { return nil }
+// Dispatch fans records from a poll into the worker channel, batching per the
+// configured batch size / timeout. It blocks until every record is enqueued.
+func (h *Handler) Dispatch(ctx context.Context, cl *kgo.Client, fetches kgo.Fetches) {
+	h.cl = cl
 
-func (h *Handler) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
 	if !h.cfg.BatchEnabled {
-		for msg := range claim.Messages() {
-			h.ch <- []incomingMsg{{session: session, msg: msg}}
-		}
-		return nil
+		fetches.EachRecord(func(rec *kgo.Record) {
+			h.enqueue(ctx, []incomingMsg{{rec: rec}})
+		})
+		return
 	}
 
 	batch := make([]incomingMsg, 0, h.cfg.BatchSize)
-	ticker := time.NewTicker(h.cfg.BatchTimeout)
-	defer ticker.Stop()
+	deadline := time.Now().Add(h.cfg.BatchTimeout)
 
 	flush := func() {
 		if len(batch) == 0 {
 			return
 		}
-		h.ch <- batch
+		h.enqueue(ctx, batch)
 		batch = make([]incomingMsg, 0, h.cfg.BatchSize)
+		deadline = time.Now().Add(h.cfg.BatchTimeout)
 	}
 
-	for {
-		select {
-		case msg, ok := <-claim.Messages():
-			if !ok {
-				flush()
-				return nil
-			}
-			batch = append(batch, incomingMsg{session: session, msg: msg})
-			if len(batch) >= h.cfg.BatchSize {
-				flush()
-				ticker.Reset(h.cfg.BatchTimeout)
-			}
-		case <-ticker.C:
+	fetches.EachRecord(func(rec *kgo.Record) {
+		batch = append(batch, incomingMsg{rec: rec})
+		if len(batch) >= h.cfg.BatchSize || time.Now().After(deadline) {
 			flush()
 		}
+	})
+	flush()
+}
+
+func (h *Handler) enqueue(ctx context.Context, batch []incomingMsg) {
+	select {
+	case <-ctx.Done():
+	case h.ch <- batch:
 	}
 }
 
-func (h *Handler) process(ctx context.Context, session sarama.ConsumerGroupSession, msg *sarama.ConsumerMessage) {
+func (h *Handler) process(ctx context.Context, rec *kgo.Record) {
 	var err error
-	switch msg.Topic {
+	switch rec.Topic {
 	case constants.TopicTraces:
-		err = h.handleTraces(ctx, msg)
+		err = h.handleTraces(ctx, rec)
 	case constants.TopicLogs:
-		err = h.handleLogs(ctx, msg)
+		err = h.handleLogs(ctx, rec)
 	case constants.TopicMetrics:
-		err = h.handleMetrics(ctx, msg)
+		err = h.handleMetrics(ctx, rec)
 	}
 	if err != nil {
-		h.logger.Error("process failed, skipping", "topic", msg.Topic, "offset", msg.Offset, "err", err)
+		h.logger.Error("process failed, skipping", "topic", rec.Topic, "offset", rec.Offset, "err", err)
 	}
-	session.MarkMessage(msg, "")
+	if h.cl != nil {
+		h.cl.MarkCommitRecords(rec)
+	}
 }
 
-func (h *Handler) handleTraces(ctx context.Context, msg *sarama.ConsumerMessage) error {
-	rows, err := transform.Traces(msg.Value)
+func (h *Handler) handleTraces(ctx context.Context, rec *kgo.Record) error {
+	rows, err := transform.Traces(rec.Value)
 	if err != nil {
 		return err
 	}
@@ -129,8 +130,8 @@ func (h *Handler) handleTraces(ctx context.Context, msg *sarama.ConsumerMessage)
 	return nil
 }
 
-func (h *Handler) handleLogs(ctx context.Context, msg *sarama.ConsumerMessage) error {
-	rows, err := transform.Logs(msg.Value)
+func (h *Handler) handleLogs(ctx context.Context, rec *kgo.Record) error {
+	rows, err := transform.Logs(rec.Value)
 	if err != nil {
 		return err
 	}
@@ -147,8 +148,8 @@ func (h *Handler) handleLogs(ctx context.Context, msg *sarama.ConsumerMessage) e
 	return nil
 }
 
-func (h *Handler) handleMetrics(ctx context.Context, msg *sarama.ConsumerMessage) error {
-	batch, err := transform.Metrics(msg.Value)
+func (h *Handler) handleMetrics(ctx context.Context, rec *kgo.Record) error {
+	batch, err := transform.Metrics(rec.Value)
 	if err != nil {
 		return err
 	}

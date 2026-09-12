@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
-	"github.com/IBM/sarama"
+	"github.com/twmb/franz-go/pkg/kgo"
 
 	"github.com/yumikokawaii/nexus/internal/config"
 	"github.com/yumikokawaii/nexus/internal/constants"
@@ -17,108 +18,88 @@ type Producer interface {
 }
 
 func New(cfg config.Config, logger *slog.Logger) (Producer, error) {
-	scfg, err := buildSaramaConfig(cfg)
+	opts := buildClientOptions(cfg)
+
+	cl, err := kgo.NewClient(opts...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("franz-go client: %w", err)
 	}
 
 	if cfg.ProducerMode == constants.ProducerModeAsync {
-		scfg.Producer.Return.Successes = false
-		scfg.Producer.Return.Errors = true
-		p, err := sarama.NewAsyncProducer(cfg.KafkaBrokers, scfg)
-		if err != nil {
-			return nil, fmt.Errorf("sarama async producer: %w", err)
-		}
-		ap := &asyncProducer{p: p}
-		go ap.drainErrors(logger)
-		return ap, nil
+		return &asyncProducer{cl: cl, logger: logger}, nil
 	}
-
-	scfg.Producer.Return.Successes = true
-	p, err := sarama.NewSyncProducer(cfg.KafkaBrokers, scfg)
-	if err != nil {
-		return nil, fmt.Errorf("sarama sync producer: %w", err)
-	}
-	return &syncProducer{p: p}, nil
+	return &syncProducer{cl: cl}, nil
 }
 
-func buildSaramaConfig(cfg config.Config) (*sarama.Config, error) {
-	scfg := sarama.NewConfig()
-
-	ver, err := sarama.ParseKafkaVersion(cfg.KafkaVersion)
-	if err != nil {
-		return nil, fmt.Errorf("invalid KAFKA_VERSION %q: %w", cfg.KafkaVersion, err)
+func buildClientOptions(cfg config.Config) []kgo.Opt {
+	opts := []kgo.Opt{
+		kgo.SeedBrokers(cfg.KafkaBrokers...),
+		kgo.RequiredAcks(acksFromString(cfg.ProducerAcks)),
+		kgo.ProducerBatchCompression(kgo.SnappyCompression()),
+		kgo.RecordRetries(cfg.ProducerRetryMax),
+		kgo.RetryBackoffFn(func(int) time.Duration { return cfg.ProducerRetryBackoff }),
 	}
-	scfg.Version = ver
 
-	scfg.Producer.RequiredAcks = acksFromString(cfg.ProducerAcks)
-	scfg.Producer.Compression = sarama.CompressionSnappy
-
-	scfg.Producer.Retry.Max = cfg.ProducerRetryMax
-	scfg.Producer.Retry.Backoff = cfg.ProducerRetryBackoff
-
+	if cfg.ProducerAcks != constants.ProducerAcksAll {
+		opts = append(opts, kgo.DisableIdempotentWrite())
+	}
 	if cfg.ProducerFlushMessages > 0 {
-		scfg.Producer.Flush.Messages = cfg.ProducerFlushMessages
+		opts = append(opts, kgo.MaxBufferedRecords(cfg.ProducerFlushMessages))
 	}
 	if cfg.ProducerFlushBytes > 0 {
-		scfg.Producer.Flush.Bytes = cfg.ProducerFlushBytes
+		opts = append(opts, kgo.ProducerBatchMaxBytes(int32(cfg.ProducerFlushBytes)))
 	}
 	if cfg.ProducerFlushFrequency > 0 {
-		scfg.Producer.Flush.Frequency = cfg.ProducerFlushFrequency
+		opts = append(opts, kgo.ProducerLinger(cfg.ProducerFlushFrequency))
 	}
 
-	return scfg, nil
+	return opts
 }
 
 // syncProducer blocks until the broker acks each message.
 type syncProducer struct {
-	p sarama.SyncProducer
+	cl *kgo.Client
 }
 
-func (s *syncProducer) Produce(_ context.Context, topic, key string, value []byte) error {
-	_, _, err := s.p.SendMessage(&sarama.ProducerMessage{
-		Topic: topic,
-		Key:   sarama.StringEncoder(key),
-		Value: sarama.ByteEncoder(value),
-	})
-	return err
+func (s *syncProducer) Produce(ctx context.Context, topic, key string, value []byte) error {
+	rec := &kgo.Record{Topic: topic, Key: []byte(key), Value: value}
+	return s.cl.ProduceSync(ctx, rec).FirstErr()
 }
 
-func (s *syncProducer) Close() error { return s.p.Close() }
+func (s *syncProducer) Close() error {
+	s.cl.Close()
+	return nil
+}
 
 // asyncProducer enqueues messages and flushes in the background.
 // Errors are logged and dropped (log+skip policy).
 type asyncProducer struct {
-	p sarama.AsyncProducer
+	cl     *kgo.Client
+	logger *slog.Logger
 }
 
-func (a *asyncProducer) Produce(_ context.Context, topic, key string, value []byte) error {
-	a.p.Input() <- &sarama.ProducerMessage{
-		Topic: topic,
-		Key:   sarama.StringEncoder(key),
-		Value: sarama.ByteEncoder(value),
-	}
+func (a *asyncProducer) Produce(ctx context.Context, topic, key string, value []byte) error {
+	rec := &kgo.Record{Topic: topic, Key: []byte(key), Value: value}
+	a.cl.Produce(ctx, rec, func(r *kgo.Record, err error) {
+		if err != nil {
+			a.logger.Error("async producer error", "topic", r.Topic, "err", err)
+		}
+	})
 	return nil
 }
 
 func (a *asyncProducer) Close() error {
-	a.p.AsyncClose()
+	a.cl.Close()
 	return nil
 }
 
-func (a *asyncProducer) drainErrors(logger *slog.Logger) {
-	for err := range a.p.Errors() {
-		logger.Error("async producer error", "topic", err.Msg.Topic, "err", err.Err)
-	}
-}
-
-func acksFromString(s string) sarama.RequiredAcks {
+func acksFromString(s string) kgo.Acks {
 	switch s {
 	case constants.ProducerAcksNone:
-		return sarama.NoResponse
+		return kgo.NoAck()
 	case constants.ProducerAcksAll:
-		return sarama.WaitForAll
+		return kgo.AllISRAcks()
 	default:
-		return sarama.WaitForLocal
+		return kgo.LeaderAck()
 	}
 }
