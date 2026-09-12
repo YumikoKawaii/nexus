@@ -21,7 +21,7 @@ func Logs(payload *logspb.LogsData) ([]FlatLog, error) {
 				bodyBytes, _ := json.Marshal(anyVal(rec.GetBody()))
 				out = append(out, FlatLog{
 					ServiceName:           svc,
-					Timestamp:             nanoToDatetime(coalesceNano(rec.GetTimeUnixNano(), rec.GetObservedTimeUnixNano())),
+					TimeUnix:              nanoToString(coalesceNano(rec.GetTimeUnixNano(), rec.GetObservedTimeUnixNano())),
 					TraceId:               hexID(rec.GetTraceId()),
 					SpanId:                hexID(rec.GetSpanId()),
 					SeverityText:          rec.GetSeverityText(),

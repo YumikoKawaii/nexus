@@ -44,7 +44,7 @@ func Traces(payload *tracepb.TracesData) ([]FlatTrace, error) {
 				out = append(out, FlatTrace{
 					ServiceName:        svc,
 					SpanName:           span.GetName(),
-					Timestamp:          nanoToDatetime(coalesceNano(span.GetStartTimeUnixNano(), span.GetEndTimeUnixNano())),
+					TimeUnix:           nanoToString(coalesceNano(span.GetStartTimeUnixNano(), span.GetEndTimeUnixNano())),
 					TraceId:            hexID(span.GetTraceId()),
 					SpanId:             hexID(span.GetSpanId()),
 					ParentSpanId:       hexID(span.GetParentSpanId()),

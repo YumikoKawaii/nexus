@@ -3,7 +3,7 @@ package transform
 type FlatTrace struct {
 	ServiceName        string `json:"ServiceName"`
 	SpanName           string `json:"SpanName"`
-	Timestamp          string `json:"Timestamp"`
+	TimeUnix           string `json:"TimeUnix"`
 	TraceId            string `json:"TraceId"`
 	SpanId             string `json:"SpanId"`
 	ParentSpanId       string `json:"ParentSpanId"`
@@ -22,7 +22,7 @@ type FlatTrace struct {
 
 type FlatLog struct {
 	ServiceName           string `json:"ServiceName"`
-	Timestamp             string `json:"Timestamp"`
+	TimeUnix              string `json:"TimeUnix"`
 	TraceId               string `json:"TraceId"`
 	SpanId                string `json:"SpanId"`
 	SeverityText          string `json:"SeverityText"`

@@ -4,7 +4,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"strconv"
-	"time"
 
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 )
@@ -108,22 +107,6 @@ func coalesceNano(vals ...uint64) uint64 {
 		}
 	}
 	return 0
-}
-
-func nanoToDatetime(ns uint64) string {
-	if ns == 0 {
-		return "1970-01-01 00:00:00"
-	}
-	sec := int64(ns) / 1_000_000_000
-	return time.Unix(sec, 0).UTC().Format("2006-01-02 15:04:05")
-}
-
-func nanoToDatetimeNullable(ns uint64) string {
-	if ns == 0 {
-		return ""
-	}
-	sec := int64(ns) / 1_000_000_000
-	return time.Unix(sec, 0).UTC().Format("2006-01-02 15:04:05")
 }
 
 func nanoToString(ns uint64) string {
