@@ -11,29 +11,12 @@ import (
 
 type Config struct {
 	KafkaBrokers      []string
-	ConsumerGroupID   string
 	LogLevel          string
-	InputTopics       []string
 	OutputTopicPrefix string
 
-	// Consumer
-	ConsumerOffsetReset        string // newest | oldest
-	ConsumerBalanceStrategy    string // roundrobin | range | sticky
-	ConsumerAutoCommit         bool
-	ConsumerAutoCommitInterval time.Duration
-	ConsumerSessionTimeout     time.Duration
-	ConsumerHeartbeatInterval  time.Duration
-	ConsumerRebalanceTimeout   time.Duration
-	ConsumerFetchMin           int32
-	ConsumerFetchDefault       int32
-	ConsumerFetchMax           int32
-
-	// Pipeline
-	ChannelBufferSize int
-	WorkerCount       int
-	BatchEnabled      bool
-	BatchSize         int
-	BatchTimeout      time.Duration
+	// OTLP receiver
+	OTLPGRPCAddr string
+	OTLPHTTPAddr string
 
 	// Producer
 	ProducerMode           string // sync | async
@@ -43,35 +26,16 @@ type Config struct {
 	ProducerFlushMessages  int
 	ProducerFlushBytes     int
 	ProducerFlushFrequency time.Duration
-
-	// Kafka version (e.g. "3.6.0")
-	KafkaVersion string
 }
 
 func Load() Config {
 	return Config{
 		KafkaBrokers:      splitCSV(env("KAFKA_BROKERS", "")),
-		ConsumerGroupID:   env("KAFKA_CONSUMER_GROUP", "nexus"),
 		LogLevel:          env("LOG_LEVEL", constants.LogLevelInfo),
-		InputTopics:       splitCSV(env("INPUT_TOPICS", "otel.traces,otel.metrics,otel.logs")),
 		OutputTopicPrefix: env("OUTPUT_TOPIC_PREFIX", "otel.flat"),
 
-		ConsumerOffsetReset:        env("CONSUMER_OFFSET_RESET", constants.OffsetResetNewest),
-		ConsumerBalanceStrategy:    env("CONSUMER_BALANCE_STRATEGY", constants.BalanceStrategyRoundRobin),
-		ConsumerAutoCommit:         envBool("CONSUMER_AUTO_COMMIT", true),
-		ConsumerAutoCommitInterval: envDuration("CONSUMER_AUTO_COMMIT_INTERVAL", 1*time.Second),
-		ConsumerSessionTimeout:     envDuration("CONSUMER_SESSION_TIMEOUT", 30*time.Second),
-		ConsumerHeartbeatInterval:  envDuration("CONSUMER_HEARTBEAT_INTERVAL", 3*time.Second),
-		ConsumerRebalanceTimeout:   envDuration("CONSUMER_REBALANCE_TIMEOUT", 60*time.Second),
-		ConsumerFetchMin:           int32(envInt("CONSUMER_FETCH_MIN_BYTES", constants.DefaultConsumerFetchMinBytes)),
-		ConsumerFetchDefault:       int32(envInt("CONSUMER_FETCH_DEFAULT_BYTES", constants.DefaultConsumerFetchDefaultBytes)),
-		ConsumerFetchMax:           int32(envInt("CONSUMER_FETCH_MAX_BYTES", constants.DefaultConsumerFetchMaxBytes)),
-
-		ChannelBufferSize: envInt("CHANNEL_BUFFER_SIZE", constants.DefaultChannelBufferSize),
-		WorkerCount:       envInt("WORKER_COUNT", constants.DefaultWorkerCount),
-		BatchEnabled:      envBool("BATCH_ENABLED", true),
-		BatchSize:         envInt("BATCH_SIZE", constants.DefaultBatchSize),
-		BatchTimeout:      envDuration("BATCH_TIMEOUT", 500*time.Millisecond),
+		OTLPGRPCAddr: env("OTLP_GRPC_ADDR", constants.DefaultOTLPGRPCAddr),
+		OTLPHTTPAddr: env("OTLP_HTTP_ADDR", constants.DefaultOTLPHTTPAddr),
 
 		ProducerMode:           env("PRODUCER_MODE", constants.ProducerModeAsync),
 		ProducerAcks:           env("PRODUCER_ACKS", constants.ProducerAcksLocal),
@@ -80,8 +44,6 @@ func Load() Config {
 		ProducerFlushMessages:  envInt("PRODUCER_FLUSH_MESSAGES", constants.DefaultProducerFlushMessages),
 		ProducerFlushBytes:     envInt("PRODUCER_FLUSH_BYTES", constants.DefaultProducerFlushBytes),
 		ProducerFlushFrequency: envDuration("PRODUCER_FLUSH_FREQUENCY", 2*time.Second),
-
-		KafkaVersion: env("KAFKA_VERSION", constants.DefaultKafkaVersion),
 	}
 }
 
@@ -101,18 +63,6 @@ func splitCSV(s string) []string {
 		}
 	}
 	return out
-}
-
-func envBool(key string, def bool) bool {
-	v := os.Getenv(key)
-	if v == "" {
-		return def
-	}
-	b, err := strconv.ParseBool(v)
-	if err != nil {
-		return def
-	}
-	return b
 }
 
 func envInt(key string, def int) int {

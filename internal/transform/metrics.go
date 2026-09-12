@@ -2,8 +2,9 @@ package transform
 
 import (
 	"encoding/json"
-	"fmt"
 	"strconv"
+
+	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 )
 
 type MetricsBatch struct {
@@ -14,60 +15,56 @@ type MetricsBatch struct {
 	ExponentialHistograms []FlatExponentialHistogram
 }
 
-func Metrics(raw []byte) (MetricsBatch, error) {
-	var payload OTLPMetricsPayload
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return MetricsBatch{}, fmt.Errorf("metrics unmarshal: %w", err)
-	}
-
+func Metrics(payload *metricspb.MetricsData) (MetricsBatch, error) {
 	var batch MetricsBatch
-	for _, rm := range payload.ResourceMetrics {
-		svc := serviceNameFrom(rm.Resource.Attributes)
-		resAttrs := attrsToJSON(rm.Resource.Attributes)
+	for _, rm := range payload.GetResourceMetrics() {
+		svc := serviceNameFrom(rm.GetResource().GetAttributes())
+		resAttrs := attrsToJSON(rm.GetResource().GetAttributes())
 
-		for _, sm := range rm.ScopeMetrics {
-			scopeAttrs := attrsToJSON(sm.Scope.Attributes)
+		for _, sm := range rm.GetScopeMetrics() {
+			scope := sm.GetScope()
+			scopeAttrs := attrsToJSON(scope.GetAttributes())
 
-			for _, m := range sm.Metrics {
+			for _, m := range sm.GetMetrics() {
 				base := metricBase{
 					ServiceName:           svc,
-					MetricName:            m.Name,
+					MetricName:            m.GetName(),
 					ResourceAttributes:    resAttrs,
-					ResourceSchemaUrl:     rm.SchemaUrl,
-					ScopeName:             sm.Scope.Name,
-					ScopeVersion:          sm.Scope.Version,
+					ResourceSchemaUrl:     rm.GetSchemaUrl(),
+					ScopeName:             scope.GetName(),
+					ScopeVersion:          scope.GetVersion(),
 					ScopeAttributes:       scopeAttrs,
-					ScopeDroppedAttrCount: int64(sm.Scope.DroppedAttributesCount),
-					ScopeSchemaUrl:        sm.SchemaUrl,
-					MetricDescription:     m.Description,
-					MetricUnit:            m.Unit,
+					ScopeDroppedAttrCount: int64(scope.GetDroppedAttributesCount()),
+					ScopeSchemaUrl:        sm.GetSchemaUrl(),
+					MetricDescription:     m.GetDescription(),
+					MetricUnit:            m.GetUnit(),
 				}
 
-				switch {
-				case m.Gauge != nil:
-					for _, dp := range m.Gauge.DataPoints {
+				switch data := m.GetData().(type) {
+				case *metricspb.Metric_Gauge:
+					for _, dp := range data.Gauge.GetDataPoints() {
 						batch.Gauges = append(batch.Gauges, flatGauge(base, dp))
 					}
-				case m.Sum != nil:
-					for _, dp := range m.Sum.DataPoints {
+				case *metricspb.Metric_Sum:
+					for _, dp := range data.Sum.GetDataPoints() {
 						g := flatGauge(base, dp)
 						batch.Sums = append(batch.Sums, FlatSum{
 							FlatGauge:              g,
-							AggregationTemporality: m.Sum.AggregationTemporality,
-							IsMonotonic:            m.Sum.IsMonotonic,
+							AggregationTemporality: int32(data.Sum.GetAggregationTemporality()),
+							IsMonotonic:            data.Sum.GetIsMonotonic(),
 						})
 					}
-				case m.Summary != nil:
-					for _, dp := range m.Summary.DataPoints {
+				case *metricspb.Metric_Summary:
+					for _, dp := range data.Summary.GetDataPoints() {
 						batch.Summaries = append(batch.Summaries, flatSummary(base, dp))
 					}
-				case m.Histogram != nil:
-					for _, dp := range m.Histogram.DataPoints {
-						batch.Histograms = append(batch.Histograms, flatHistogram(base, dp, m.Histogram.AggregationTemporality))
+				case *metricspb.Metric_Histogram:
+					for _, dp := range data.Histogram.GetDataPoints() {
+						batch.Histograms = append(batch.Histograms, flatHistogram(base, dp, int32(data.Histogram.GetAggregationTemporality())))
 					}
-				case m.ExponentialHistogram != nil:
-					for _, dp := range m.ExponentialHistogram.DataPoints {
-						batch.ExponentialHistograms = append(batch.ExponentialHistograms, flatExponentialHistogram(base, dp, m.ExponentialHistogram.AggregationTemporality))
+				case *metricspb.Metric_ExponentialHistogram:
+					for _, dp := range data.ExponentialHistogram.GetDataPoints() {
+						batch.ExponentialHistograms = append(batch.ExponentialHistograms, flatExponentialHistogram(base, dp, int32(data.ExponentialHistogram.GetAggregationTemporality())))
 					}
 				}
 			}
@@ -90,18 +87,18 @@ type metricBase struct {
 	MetricUnit            string
 }
 
-func flatGauge(b metricBase, dp NumberDataPoint) FlatGauge {
+func flatGauge(b metricBase, dp *metricspb.NumberDataPoint) FlatGauge {
 	var val string
-	switch {
-	case dp.AsDouble != nil:
-		val = strconv.FormatFloat(*dp.AsDouble, 'f', -1, 64)
-	case dp.AsInt != nil:
-		val = strconv.FormatInt(int64(*dp.AsInt), 10)
+	switch v := dp.GetValue().(type) {
+	case *metricspb.NumberDataPoint_AsDouble:
+		val = strconv.FormatFloat(v.AsDouble, 'f', -1, 64)
+	case *metricspb.NumberDataPoint_AsInt:
+		val = strconv.FormatInt(v.AsInt, 10)
 	}
 	return FlatGauge{
 		ServiceName:           b.ServiceName,
 		MetricName:            b.MetricName,
-		TimeUnix:              nanoToDatetime(coalesceStr(dp.TimeUnixNano, dp.StartTimeUnixNano)),
+		TimeUnix:              nanoToDatetime(coalesceNano(dp.GetTimeUnixNano(), dp.GetStartTimeUnixNano())),
 		ResourceAttributes:    b.ResourceAttributes,
 		ResourceSchemaUrl:     b.ResourceSchemaUrl,
 		ScopeName:             b.ScopeName,
@@ -111,20 +108,20 @@ func flatGauge(b metricBase, dp NumberDataPoint) FlatGauge {
 		ScopeSchemaUrl:        b.ScopeSchemaUrl,
 		MetricDescription:     b.MetricDescription,
 		MetricUnit:            b.MetricUnit,
-		Attributes:            attrsToJSON(dp.Attributes),
-		StartTimeUnix:         nanoToDatetimeNullable(dp.StartTimeUnixNano),
+		Attributes:            attrsToJSON(dp.GetAttributes()),
+		StartTimeUnix:         nanoToDatetimeNullable(dp.GetStartTimeUnixNano()),
 		Value:                 val,
-		Flags:                 dp.Flags,
+		Flags:                 int32(dp.GetFlags()),
 		Exemplars:             "[]",
 	}
 }
 
-func flatSummary(b metricBase, dp SummaryDataPoint) FlatSummary {
-	qvJSON, _ := json.Marshal(dp.QuantileValues)
+func flatSummary(b metricBase, dp *metricspb.SummaryDataPoint) FlatSummary {
+	qvJSON := marshalJSON(quantileValues(dp.GetQuantileValues()))
 	return FlatSummary{
 		ServiceName:           b.ServiceName,
 		MetricName:            b.MetricName,
-		TimeUnix:              nanoToDatetime(coalesceStr(dp.TimeUnixNano, dp.StartTimeUnixNano)),
+		TimeUnix:              nanoToDatetime(coalesceNano(dp.GetTimeUnixNano(), dp.GetStartTimeUnixNano())),
 		ResourceAttributes:    b.ResourceAttributes,
 		ResourceSchemaUrl:     b.ResourceSchemaUrl,
 		ScopeName:             b.ScopeName,
@@ -134,23 +131,36 @@ func flatSummary(b metricBase, dp SummaryDataPoint) FlatSummary {
 		ScopeSchemaUrl:        b.ScopeSchemaUrl,
 		MetricDescription:     b.MetricDescription,
 		MetricUnit:            b.MetricUnit,
-		Attributes:            attrsToJSON(dp.Attributes),
-		StartTimeUnix:         nanoToDatetimeNullable(dp.StartTimeUnixNano),
-		Count:                 uint64(dp.Count),
-		Sum:                   dp.Sum,
-		ValueAtQuantiles:      string(qvJSON),
-		Flags:                 dp.Flags,
+		Attributes:            attrsToJSON(dp.GetAttributes()),
+		StartTimeUnix:         nanoToDatetimeNullable(dp.GetStartTimeUnixNano()),
+		Count:                 dp.GetCount(),
+		Sum:                   dp.GetSum(),
+		ValueAtQuantiles:      qvJSON,
+		Flags:                 int32(dp.GetFlags()),
 	}
 }
 
-func flatHistogram(b metricBase, dp HistogramDataPoint, aggTemp int32) FlatHistogram {
-	bcJSON, _ := json.Marshal(dp.BucketCounts)
-	ebJSON, _ := json.Marshal(dp.ExplicitBounds)
-	exJSON, _ := json.Marshal(dp.Exemplars)
+type outQuantile struct {
+	Quantile float64 `json:"quantile"`
+	Value    float64 `json:"value"`
+}
+
+func quantileValues(qs []*metricspb.SummaryDataPoint_ValueAtQuantile) []outQuantile {
+	out := make([]outQuantile, 0, len(qs))
+	for _, q := range qs {
+		out = append(out, outQuantile{Quantile: q.GetQuantile(), Value: q.GetValue()})
+	}
+	return out
+}
+
+func flatHistogram(b metricBase, dp *metricspb.HistogramDataPoint, aggTemp int32) FlatHistogram {
+	bcJSON, _ := json.Marshal(dp.GetBucketCounts())
+	ebJSON, _ := json.Marshal(dp.GetExplicitBounds())
+	exJSON := marshalJSON(exemplars(dp.GetExemplars()))
 	return FlatHistogram{
 		ServiceName:            b.ServiceName,
 		MetricName:             b.MetricName,
-		TimeUnix:               coalesceStr(dp.TimeUnixNano, dp.StartTimeUnixNano),
+		TimeUnix:               nanoToString(coalesceNano(dp.GetTimeUnixNano(), dp.GetStartTimeUnixNano())),
 		ResourceAttributes:     b.ResourceAttributes,
 		ResourceSchemaUrl:      b.ResourceSchemaUrl,
 		ScopeName:              b.ScopeName,
@@ -160,28 +170,28 @@ func flatHistogram(b metricBase, dp HistogramDataPoint, aggTemp int32) FlatHisto
 		ScopeSchemaUrl:         b.ScopeSchemaUrl,
 		MetricDescription:      b.MetricDescription,
 		MetricUnit:             b.MetricUnit,
-		Attributes:             attrsToJSON(dp.Attributes),
-		StartTimeUnix:          dp.StartTimeUnixNano,
-		Count:                  uint64(dp.Count),
-		Sum:                    float64OrZero(dp.Sum),
+		Attributes:             attrsToJSON(dp.GetAttributes()),
+		StartTimeUnix:          nanoToString(dp.GetStartTimeUnixNano()),
+		Count:                  dp.GetCount(),
+		Sum:                    dp.GetSum(),
 		BucketCounts:           string(bcJSON),
 		ExplicitBounds:         string(ebJSON),
-		Exemplars:              string(exJSON),
-		Flags:                  dp.Flags,
-		Min:                    float64OrZero(dp.Min),
-		Max:                    float64OrZero(dp.Max),
+		Exemplars:              exJSON,
+		Flags:                  int32(dp.GetFlags()),
+		Min:                    dp.GetMin(),
+		Max:                    dp.GetMax(),
 		AggregationTemporality: aggTemp,
 	}
 }
 
-func flatExponentialHistogram(b metricBase, dp ExponentialHistogramDataPoint, aggTemp int32) FlatExponentialHistogram {
-	posBC, _ := json.Marshal(dp.Positive.BucketCounts)
-	negBC, _ := json.Marshal(dp.Negative.BucketCounts)
-	exJSON, _ := json.Marshal(dp.Exemplars)
+func flatExponentialHistogram(b metricBase, dp *metricspb.ExponentialHistogramDataPoint, aggTemp int32) FlatExponentialHistogram {
+	posBC, _ := json.Marshal(dp.GetPositive().GetBucketCounts())
+	negBC, _ := json.Marshal(dp.GetNegative().GetBucketCounts())
+	exJSON := marshalJSON(exemplars(dp.GetExemplars()))
 	return FlatExponentialHistogram{
 		ServiceName:            b.ServiceName,
 		MetricName:             b.MetricName,
-		TimeUnix:               coalesceStr(dp.TimeUnixNano, dp.StartTimeUnixNano),
+		TimeUnix:               nanoToString(coalesceNano(dp.GetTimeUnixNano(), dp.GetStartTimeUnixNano())),
 		ResourceAttributes:     b.ResourceAttributes,
 		ResourceSchemaUrl:      b.ResourceSchemaUrl,
 		ScopeName:              b.ScopeName,
@@ -191,20 +201,49 @@ func flatExponentialHistogram(b metricBase, dp ExponentialHistogramDataPoint, ag
 		ScopeSchemaUrl:         b.ScopeSchemaUrl,
 		MetricDescription:      b.MetricDescription,
 		MetricUnit:             b.MetricUnit,
-		Attributes:             attrsToJSON(dp.Attributes),
-		StartTimeUnix:          dp.StartTimeUnixNano,
-		Count:                  uint64(dp.Count),
-		Sum:                    float64OrZero(dp.Sum),
-		Scale:                  dp.Scale,
-		ZeroCount:              uint64(dp.ZeroCount),
-		PositiveOffset:         dp.Positive.Offset,
+		Attributes:             attrsToJSON(dp.GetAttributes()),
+		StartTimeUnix:          nanoToString(dp.GetStartTimeUnixNano()),
+		Count:                  dp.GetCount(),
+		Sum:                    dp.GetSum(),
+		Scale:                  dp.GetScale(),
+		ZeroCount:              dp.GetZeroCount(),
+		PositiveOffset:         dp.GetPositive().GetOffset(),
 		PositiveBucketCounts:   string(posBC),
-		NegativeOffset:         dp.Negative.Offset,
+		NegativeOffset:         dp.GetNegative().GetOffset(),
 		NegativeBucketCounts:   string(negBC),
-		Exemplars:              string(exJSON),
-		Flags:                  dp.Flags,
-		Min:                    float64OrZero(dp.Min),
-		Max:                    float64OrZero(dp.Max),
+		Exemplars:              exJSON,
+		Flags:                  int32(dp.GetFlags()),
+		Min:                    dp.GetMin(),
+		Max:                    dp.GetMax(),
 		AggregationTemporality: aggTemp,
 	}
+}
+
+type outExemplar struct {
+	TimeUnixNano string   `json:"timeUnixNano"`
+	AsDouble     *float64 `json:"asDouble,omitempty"`
+	AsInt        *int64   `json:"asInt,omitempty"`
+	TraceId      string   `json:"traceId"`
+	SpanId       string   `json:"spanId"`
+}
+
+func exemplars(exs []*metricspb.Exemplar) []outExemplar {
+	out := make([]outExemplar, 0, len(exs))
+	for _, e := range exs {
+		oe := outExemplar{
+			TimeUnixNano: nanoToString(e.GetTimeUnixNano()),
+			TraceId:      hexID(e.GetTraceId()),
+			SpanId:       hexID(e.GetSpanId()),
+		}
+		switch v := e.GetValue().(type) {
+		case *metricspb.Exemplar_AsDouble:
+			d := v.AsDouble
+			oe.AsDouble = &d
+		case *metricspb.Exemplar_AsInt:
+			i := v.AsInt
+			oe.AsInt = &i
+		}
+		out = append(out, oe)
+	}
+	return out
 }

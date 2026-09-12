@@ -1,296 +1,137 @@
 package transform
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"strconv"
+	"time"
+
+	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 )
 
-// OTLP JSON wire format structs for unmarshalling raw Kafka messages.
-// Field names match the protobuf-JSON encoding from otelcol-contrib kafka exporter.
+// attrsToJSON renders a slice of OTLP KeyValue attributes as a flat JSON object.
+func attrsToJSON(kvs []*commonpb.KeyValue) string {
+	m := make(map[string]any, len(kvs))
+	for _, kv := range kvs {
+		m[kv.GetKey()] = anyVal(kv.GetValue())
+	}
+	b, _ := json.Marshal(m)
+	return string(b)
+}
 
-// StringInt64 unmarshals a proto3 JSON int64, which may be quoted or bare.
-type StringInt64 int64
+// attrsToMap renders attributes as a map (for nested JSON like span events/links).
+func attrsToMap(kvs []*commonpb.KeyValue) map[string]any {
+	m := make(map[string]any, len(kvs))
+	for _, kv := range kvs {
+		m[kv.GetKey()] = anyVal(kv.GetValue())
+	}
+	return m
+}
 
-func (s *StringInt64) UnmarshalJSON(b []byte) error {
-	if len(b) > 0 && b[0] == '"' {
-		var str string
-		if err := json.Unmarshal(b, &str); err != nil {
-			return err
-		}
-		v, err := strconv.ParseInt(str, 10, 64)
-		if err != nil {
-			return err
-		}
-		*s = StringInt64(v)
+func anyVal(v *commonpb.AnyValue) any {
+	if v == nil {
 		return nil
 	}
-	var v int64
-	if err := json.Unmarshal(b, &v); err != nil {
-		return err
-	}
-	*s = StringInt64(v)
-	return nil
-}
-
-// StringUint64 unmarshals a proto3 JSON uint64, which may be quoted or bare.
-type StringUint64 uint64
-
-func (s *StringUint64) UnmarshalJSON(b []byte) error {
-	if len(b) > 0 && b[0] == '"' {
-		var str string
-		if err := json.Unmarshal(b, &str); err != nil {
-			return err
+	switch val := v.Value.(type) {
+	case *commonpb.AnyValue_StringValue:
+		return val.StringValue
+	case *commonpb.AnyValue_IntValue:
+		return val.IntValue
+	case *commonpb.AnyValue_DoubleValue:
+		return val.DoubleValue
+	case *commonpb.AnyValue_BoolValue:
+		return val.BoolValue
+	case *commonpb.AnyValue_BytesValue:
+		return hex.EncodeToString(val.BytesValue)
+	case *commonpb.AnyValue_ArrayValue:
+		out := make([]any, 0, len(val.ArrayValue.GetValues()))
+		for _, e := range val.ArrayValue.GetValues() {
+			out = append(out, anyVal(e))
 		}
-		v, err := strconv.ParseUint(str, 10, 64)
-		if err != nil {
-			return err
+		return out
+	case *commonpb.AnyValue_KvlistValue:
+		m := make(map[string]any, len(val.KvlistValue.GetValues()))
+		for _, e := range val.KvlistValue.GetValues() {
+			m[e.GetKey()] = anyVal(e.GetValue())
 		}
-		*s = StringUint64(v)
+		return m
+	default:
 		return nil
 	}
-	var v uint64
-	if err := json.Unmarshal(b, &v); err != nil {
-		return err
-	}
-	*s = StringUint64(v)
-	return nil
 }
 
-// StringUint64Slice unmarshals a JSON array of proto3 uint64 values (quoted or bare).
-type StringUint64Slice []uint64
-
-func (s *StringUint64Slice) UnmarshalJSON(b []byte) error {
-	var raw []json.RawMessage
-	if err := json.Unmarshal(b, &raw); err != nil {
-		return err
+func anyValStr(v *commonpb.AnyValue) string {
+	if v == nil {
+		return ""
 	}
-	*s = make(StringUint64Slice, len(raw))
-	for i, r := range raw {
-		var elem StringUint64
-		if err := elem.UnmarshalJSON(r); err != nil {
-			return err
+	switch val := v.Value.(type) {
+	case *commonpb.AnyValue_StringValue:
+		return val.StringValue
+	case *commonpb.AnyValue_IntValue:
+		return strconv.FormatInt(val.IntValue, 10)
+	case *commonpb.AnyValue_DoubleValue:
+		return strconv.FormatFloat(val.DoubleValue, 'f', -1, 64)
+	case *commonpb.AnyValue_BoolValue:
+		return strconv.FormatBool(val.BoolValue)
+	default:
+		return ""
+	}
+}
+
+func serviceNameFrom(attrs []*commonpb.KeyValue) string {
+	return attrValue(attrs, "service.name")
+}
+
+func attrValue(attrs []*commonpb.KeyValue, key string) string {
+	for _, kv := range attrs {
+		if kv.GetKey() == key {
+			return anyValStr(kv.GetValue())
 		}
-		(*s)[i] = uint64(elem)
 	}
-	return nil
+	return ""
 }
 
-type OTLPTracePayload struct {
-	ResourceSpans []ResourceSpan `json:"resourceSpans"`
+func marshalJSON(v any) string {
+	b, _ := json.Marshal(v)
+	return string(b)
 }
 
-type ResourceSpan struct {
-	Resource   OTLPResource `json:"resource"`
-	SchemaUrl  string       `json:"schemaUrl"`
-	ScopeSpans []ScopeSpan  `json:"scopeSpans"`
+// hexID renders an OTLP trace/span id (raw bytes) as lowercase hex.
+// Empty input yields an empty string.
+func hexID(b []byte) string {
+	if len(b) == 0 {
+		return ""
+	}
+	return hex.EncodeToString(b)
 }
 
-type ScopeSpan struct {
-	Scope     OTLPScope `json:"scope"`
-	SchemaUrl string    `json:"schemaUrl"`
-	Spans     []Span    `json:"spans"`
+// coalesceNano returns the first non-zero nanosecond timestamp.
+func coalesceNano(vals ...uint64) uint64 {
+	for _, v := range vals {
+		if v != 0 {
+			return v
+		}
+	}
+	return 0
 }
 
-type Span struct {
-	TraceId           string       `json:"traceId"`
-	SpanId            string       `json:"spanId"`
-	ParentSpanId      string       `json:"parentSpanId"`
-	Name              string       `json:"name"`
-	Kind              int32        `json:"kind"`
-	TraceState        string       `json:"traceState"`
-	StartTimeUnixNano string       `json:"startTimeUnixNano"`
-	EndTimeUnixNano   string       `json:"endTimeUnixNano"`
-	Attributes        []OTLPKV     `json:"attributes"`
-	Status            SpanStatus   `json:"status"`
-	Events            []SpanEvent  `json:"events"`
-	Links             []SpanLink   `json:"links"`
+func nanoToDatetime(ns uint64) string {
+	if ns == 0 {
+		return "1970-01-01 00:00:00"
+	}
+	sec := int64(ns) / 1_000_000_000
+	return time.Unix(sec, 0).UTC().Format("2006-01-02 15:04:05")
 }
 
-type SpanStatus struct {
-	Code    int32  `json:"code"`
-	Message string `json:"message"`
+// nanoToDatetimeNullable returns empty string (→ NULL) when ns is zero.
+func nanoToDatetimeNullable(ns uint64) string {
+	if ns == 0 {
+		return ""
+	}
+	sec := int64(ns) / 1_000_000_000
+	return time.Unix(sec, 0).UTC().Format("2006-01-02 15:04:05")
 }
 
-type SpanEvent struct {
-	TimeUnixNano string   `json:"timeUnixNano"`
-	Name         string   `json:"name"`
-	Attributes   []OTLPKV `json:"attributes"`
-}
-
-type SpanLink struct {
-	TraceId    string   `json:"traceId"`
-	SpanId     string   `json:"spanId"`
-	Attributes []OTLPKV `json:"attributes"`
-}
-
-type OTLPLogsPayload struct {
-	ResourceLogs []ResourceLog `json:"resourceLogs"`
-}
-
-type ResourceLog struct {
-	Resource  OTLPResource `json:"resource"`
-	SchemaUrl string       `json:"schemaUrl"`
-	ScopeLogs []ScopeLog   `json:"scopeLogs"`
-}
-
-type ScopeLog struct {
-	Scope      OTLPScope   `json:"scope"`
-	SchemaUrl  string      `json:"schemaUrl"`
-	LogRecords []LogRecord `json:"logRecords"`
-}
-
-type LogRecord struct {
-	TimeUnixNano         string   `json:"timeUnixNano"`
-	SeverityNumber       int32    `json:"severityNumber"`
-	SeverityText         string   `json:"severityText"`
-	Body                 OTLPAny  `json:"body"`
-	Attributes           []OTLPKv `json:"attributes"`
-	TraceId              string   `json:"traceId"`
-	SpanId               string   `json:"spanId"`
-}
-
-type OTLPMetricsPayload struct {
-	ResourceMetrics []ResourceMetric `json:"resourceMetrics"`
-}
-
-type ResourceMetric struct {
-	Resource     OTLPResource  `json:"resource"`
-	SchemaUrl    string        `json:"schemaUrl"`
-	ScopeMetrics []ScopeMetric `json:"scopeMetrics"`
-}
-
-type ScopeMetric struct {
-	Scope     OTLPScope `json:"scope"`
-	SchemaUrl string    `json:"schemaUrl"`
-	Metrics   []Metric  `json:"metrics"`
-}
-
-type Metric struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Unit        string `json:"unit"`
-	// only one of these will be set
-	Gauge                *GaugeData                `json:"gauge,omitempty"`
-	Sum                  *SumData                  `json:"sum,omitempty"`
-	Summary              *SummaryData              `json:"summary,omitempty"`
-	Histogram            *HistogramData            `json:"histogram,omitempty"`
-	ExponentialHistogram *ExponentialHistogramData `json:"exponentialHistogram,omitempty"`
-}
-
-type GaugeData struct {
-	DataPoints []NumberDataPoint `json:"dataPoints"`
-}
-
-type SumData struct {
-	DataPoints             []NumberDataPoint `json:"dataPoints"`
-	AggregationTemporality int32             `json:"aggregationTemporality"`
-	IsMonotonic            bool              `json:"isMonotonic"`
-}
-
-type SummaryData struct {
-	DataPoints []SummaryDataPoint `json:"dataPoints"`
-}
-
-type HistogramData struct {
-	DataPoints             []HistogramDataPoint `json:"dataPoints"`
-	AggregationTemporality int32                `json:"aggregationTemporality"`
-}
-
-type ExponentialHistogramData struct {
-	DataPoints             []ExponentialHistogramDataPoint `json:"dataPoints"`
-	AggregationTemporality int32                           `json:"aggregationTemporality"`
-}
-
-type NumberDataPoint struct {
-	Attributes        []OTLPKv      `json:"attributes"`
-	StartTimeUnixNano string        `json:"startTimeUnixNano"`
-	TimeUnixNano      string        `json:"timeUnixNano"`
-	AsDouble          *float64      `json:"asDouble,omitempty"`
-	AsInt             *StringInt64  `json:"asInt,omitempty"`
-	Flags             int32         `json:"flags"`
-}
-
-type SummaryDataPoint struct {
-	Attributes        []OTLPKv        `json:"attributes"`
-	StartTimeUnixNano string          `json:"startTimeUnixNano"`
-	TimeUnixNano      string          `json:"timeUnixNano"`
-	Count             StringUint64    `json:"count"`
-	Sum               float64         `json:"sum"`
-	QuantileValues    []QuantileValue `json:"quantileValues"`
-	Flags             int32           `json:"flags"`
-}
-
-type QuantileValue struct {
-	Quantile float64 `json:"quantile"`
-	Value    float64 `json:"value"`
-}
-
-type HistogramDataPoint struct {
-	Attributes        []OTLPKv     `json:"attributes"`
-	StartTimeUnixNano string       `json:"startTimeUnixNano"`
-	TimeUnixNano      string       `json:"timeUnixNano"`
-	Count             StringUint64      `json:"count"`
-	Sum               *float64          `json:"sum,omitempty"`
-	BucketCounts      StringUint64Slice `json:"bucketCounts"`
-	ExplicitBounds    []float64         `json:"explicitBounds"`
-	Exemplars         []Exemplar   `json:"exemplars"`
-	Flags             int32        `json:"flags"`
-	Min               *float64     `json:"min,omitempty"`
-	Max               *float64     `json:"max,omitempty"`
-}
-
-type ExponentialHistogramDataPoint struct {
-	Attributes        []OTLPKv     `json:"attributes"`
-	StartTimeUnixNano string       `json:"startTimeUnixNano"`
-	TimeUnixNano      string       `json:"timeUnixNano"`
-	Count             StringUint64 `json:"count"`
-	Sum               *float64     `json:"sum,omitempty"`
-	Scale             int32        `json:"scale"`
-	ZeroCount         StringUint64 `json:"zeroCount"`
-	Positive          BucketBands  `json:"positive"`
-	Negative          BucketBands  `json:"negative"`
-	Exemplars         []Exemplar   `json:"exemplars"`
-	Flags             int32        `json:"flags"`
-	Min               *float64     `json:"min,omitempty"`
-	Max               *float64     `json:"max,omitempty"`
-}
-
-type BucketBands struct {
-	Offset       int32             `json:"offset"`
-	BucketCounts StringUint64Slice `json:"bucketCounts"`
-}
-
-type Exemplar struct {
-	TimeUnixNano string        `json:"timeUnixNano"`
-	AsDouble     *float64      `json:"asDouble,omitempty"`
-	AsInt        *StringInt64  `json:"asInt,omitempty"`
-	TraceId      string        `json:"traceId"`
-	SpanId       string        `json:"spanId"`
-}
-
-type OTLPResource struct {
-	Attributes []OTLPKv `json:"attributes"`
-	SchemaUrl  string   `json:"schemaUrl"`
-}
-
-type OTLPScope struct {
-	Name                   string   `json:"name"`
-	Version                string   `json:"version"`
-	Attributes             []OTLPKv `json:"attributes"`
-	DroppedAttributesCount StringInt64 `json:"droppedAttributesCount"`
-}
-
-type OTLPKv struct {
-	Key   string  `json:"key"`
-	Value OTLPAny `json:"value"`
-}
-
-// OTLPKV is an alias kept for compatibility within this package.
-type OTLPKV = OTLPKv
-
-type OTLPAny struct {
-	StringValue *string       `json:"stringValue,omitempty"`
-	IntValue    *StringInt64  `json:"intValue,omitempty"`
-	DoubleValue *float64      `json:"doubleValue,omitempty"`
-	BoolValue   *bool         `json:"boolValue,omitempty"`
+func nanoToString(ns uint64) string {
+	return strconv.FormatUint(ns, 10)
 }

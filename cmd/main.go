@@ -6,11 +6,12 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/yumikokawaii/nexus/internal/config"
 	"github.com/yumikokawaii/nexus/internal/constants"
-	"github.com/yumikokawaii/nexus/internal/consumer"
 	"github.com/yumikokawaii/nexus/internal/producer"
+	"github.com/yumikokawaii/nexus/internal/receiver"
 )
 
 func main() {
@@ -37,26 +38,33 @@ func main() {
 	}
 	defer p.Close()
 
-	h := consumer.NewHandler(cfg, p, logger)
-	h.Start(ctx)
+	svc := receiver.NewService(cfg, p, logger)
 
-	group, err := consumer.NewGroup(cfg, h)
-	if err != nil {
-		logger.Error("consumer group init failed", "err", err)
+	grpcSrv := receiver.NewGRPCServer(cfg.OTLPGRPCAddr, svc)
+	if err := grpcSrv.Start(logger); err != nil {
+		logger.Error("otlp grpc start failed", "err", err)
 		os.Exit(1)
 	}
-	defer group.Close()
+
+	httpSrv := receiver.NewHTTPServer(cfg.OTLPHTTPAddr, svc)
+	if err := httpSrv.Start(logger); err != nil {
+		logger.Error("otlp http start failed", "err", err)
+		os.Exit(1)
+	}
 
 	logger.Info("nexus started",
 		"brokers", cfg.KafkaBrokers,
-		"group", cfg.ConsumerGroupID,
-		"workers", cfg.WorkerCount,
-		"channel_buffer", cfg.ChannelBufferSize,
+		"otlp_grpc", cfg.OTLPGRPCAddr,
+		"otlp_http", cfg.OTLPHTTPAddr,
 		"producer_mode", cfg.ProducerMode,
 	)
 
-	if err := group.Run(ctx); err != nil && err != context.Canceled {
-		logger.Error("consumer group exited", "err", err)
-		os.Exit(1)
-	}
+	<-ctx.Done()
+	logger.Info("shutting down")
+
+	grpcSrv.Stop()
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+	httpSrv.Stop(shutdownCtx)
 }

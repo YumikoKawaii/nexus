@@ -1,9 +1,9 @@
 package transform
 
 import (
-	"encoding/json"
-	"fmt"
 	"strconv"
+
+	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 )
 
 var spanKindNames = map[int32]string{
@@ -21,52 +21,83 @@ var statusCodeNames = map[int32]string{
 	2: "STATUS_CODE_ERROR",
 }
 
-func Traces(raw []byte) ([]FlatTrace, error) {
-	var payload OTLPTracePayload
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return nil, fmt.Errorf("traces unmarshal: %w", err)
-	}
-
+func Traces(payload *tracepb.TracesData) ([]FlatTrace, error) {
 	var out []FlatTrace
-	for _, rs := range payload.ResourceSpans {
-		svc := serviceNameFrom(rs.Resource.Attributes)
-		resAttrs := attrsToJSON(rs.Resource.Attributes)
+	for _, rs := range payload.GetResourceSpans() {
+		svc := serviceNameFrom(rs.GetResource().GetAttributes())
+		resAttrs := attrsToJSON(rs.GetResource().GetAttributes())
 
-		for _, ss := range rs.ScopeSpans {
-			for _, span := range ss.Spans {
-				startNs, _ := strconv.ParseInt(span.StartTimeUnixNano, 10, 64)
-				endNs, _ := strconv.ParseInt(span.EndTimeUnixNano, 10, 64)
-
-				spanKind := spanKindNames[span.Kind]
+		for _, ss := range rs.GetScopeSpans() {
+			scope := ss.GetScope()
+			for _, span := range ss.GetSpans() {
+				kind := int32(span.GetKind())
+				spanKind := spanKindNames[kind]
 				if spanKind == "" {
-					spanKind = strconv.Itoa(int(span.Kind))
+					spanKind = strconv.Itoa(int(kind))
 				}
-				statusCode := statusCodeNames[span.Status.Code]
+				code := int32(span.GetStatus().GetCode())
+				statusCode := statusCodeNames[code]
 				if statusCode == "" {
-					statusCode = strconv.Itoa(int(span.Status.Code))
+					statusCode = strconv.Itoa(int(code))
 				}
 
 				out = append(out, FlatTrace{
 					ServiceName:        svc,
-					SpanName:           span.Name,
-					Timestamp:          nanoToDatetime(coalesceStr(span.StartTimeUnixNano, span.EndTimeUnixNano)),
-					TraceId:            span.TraceId,
-					SpanId:             span.SpanId,
-					ParentSpanId:       span.ParentSpanId,
-					TraceState:         span.TraceState,
+					SpanName:           span.GetName(),
+					Timestamp:          nanoToDatetime(coalesceNano(span.GetStartTimeUnixNano(), span.GetEndTimeUnixNano())),
+					TraceId:            hexID(span.GetTraceId()),
+					SpanId:             hexID(span.GetSpanId()),
+					ParentSpanId:       hexID(span.GetParentSpanId()),
+					TraceState:         span.GetTraceState(),
 					SpanKind:           spanKind,
 					ResourceAttributes: resAttrs,
-					ScopeName:          ss.Scope.Name,
-					ScopeVersion:       ss.Scope.Version,
-					SpanAttributes:     attrsToJSON(span.Attributes),
-					Duration:           endNs - startNs,
+					ScopeName:          scope.GetName(),
+					ScopeVersion:       scope.GetVersion(),
+					SpanAttributes:     attrsToJSON(span.GetAttributes()),
+					Duration:           int64(span.GetEndTimeUnixNano()) - int64(span.GetStartTimeUnixNano()),
 					StatusCode:         statusCode,
-					StatusMessage:      span.Status.Message,
-					Events:             marshalJSON(span.Events),
-					Links:              marshalJSON(span.Links),
+					StatusMessage:      span.GetStatus().GetMessage(),
+					Events:             marshalJSON(spanEvents(span.GetEvents())),
+					Links:              marshalJSON(spanLinks(span.GetLinks())),
 				})
 			}
 		}
 	}
 	return out, nil
+}
+
+type outEvent struct {
+	TimeUnixNano string         `json:"timeUnixNano"`
+	Name         string         `json:"name"`
+	Attributes   map[string]any `json:"attributes"`
+}
+
+type outLink struct {
+	TraceId    string         `json:"traceId"`
+	SpanId     string         `json:"spanId"`
+	Attributes map[string]any `json:"attributes"`
+}
+
+func spanEvents(events []*tracepb.Span_Event) []outEvent {
+	out := make([]outEvent, 0, len(events))
+	for _, e := range events {
+		out = append(out, outEvent{
+			TimeUnixNano: nanoToString(e.GetTimeUnixNano()),
+			Name:         e.GetName(),
+			Attributes:   attrsToMap(e.GetAttributes()),
+		})
+	}
+	return out
+}
+
+func spanLinks(links []*tracepb.Span_Link) []outLink {
+	out := make([]outLink, 0, len(links))
+	for _, l := range links {
+		out = append(out, outLink{
+			TraceId:    hexID(l.GetTraceId()),
+			SpanId:     hexID(l.GetSpanId()),
+			Attributes: attrsToMap(l.GetAttributes()),
+		})
+	}
+	return out
 }
