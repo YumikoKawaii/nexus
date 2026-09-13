@@ -40,8 +40,7 @@ securityContext:
 
 service:
   type: ClusterIP
-  grpcPort: 4317
-  httpPort: 4318
+  port: 4317
 
 # Rendered verbatim into a config.yaml ConfigMap and mounted at /etc/nexus/config.yaml.
 config:
@@ -50,8 +49,7 @@ config:
   logLevel: info
 
   otlp:
-    grpcAddr: ":4317"
-    httpAddr: ":4318"
+    addr: ":4317"
 
   # Topic-suffix allowlist; empty publishes all.
   topics:

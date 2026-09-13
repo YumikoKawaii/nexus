@@ -37,15 +37,17 @@ was born in. Downstreams want flat rows, not nesting. `nexus` stands at the meet
 Kafka — ready for whatever consumes it next.
 
 ```
-  otel sdk / collector ──OTLP (gRPC :4317 / HTTP :4318)──▶ nexus ──otel.flat.* (Kafka)──▶ downstream
+  otel sdk / collector ──OTLP (gRPC + HTTP on :4317)──▶ nexus ──otel.flat.* (Kafka)──▶ downstream
 ```
 
 ## Architecture
 
 nexus is a receiver in front of a producer, with a pure transform in between:
 
-- **Receive** — dual OTLP frontends (`internal/receiver`) accept gRPC on `:4317` and HTTP on `:4318`
-  (`/v1/{traces,logs,metrics}`, protobuf or JSON, with standard compression)
+- **Receive** — one OTLP frontend (`internal/receiver`) on `:4317`, powered by
+  [Vanguard](https://github.com/connectrpc/vanguard-go): a single Connect-RPC service handler
+  transcodes gRPC, gRPC-Web, Connect, and REST (`/v1/{traces,logs,metrics}`, protobuf or JSON,
+  with standard compression) onto the same `Export` implementations — no hand-written parsing
 - **Transform** — explodes each OTLP `ResourceSpans` / `ResourceLogs` / `ResourceMetrics` into flat rows, fanning
   metrics out by type.
 - **Produce** — writes one JSON record per row to the matching `otel.flat.*` topic.
@@ -77,8 +79,7 @@ outputTopicPrefix: otel.flat   # topics are <prefix>.<suffix>
 logLevel: info                 # debug | info | warn | error
 
 otlp:
-  grpcAddr: ":4317"
-  httpAddr: ":4318"
+  addr: ":4317"               # single port: gRPC, gRPC-Web, Connect, REST
   maxRecvMsgSizeMiB: 4         # max decoded OTLP request size
 
 topics:

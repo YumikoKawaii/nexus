@@ -9,11 +9,7 @@ spec:
   selector:
     {{- include "nexus.selectorLabels" . | nindent 4 }}
   ports:
-    - name: grpc
-      port: {{ .Values.service.grpcPort }}
-      targetPort: grpc
-      protocol: TCP
-    - name: http
-      port: {{ .Values.service.httpPort }}
-      targetPort: http
+    - name: otlp
+      port: {{ .Values.service.port }}
+      targetPort: otlp
       protocol: TCP

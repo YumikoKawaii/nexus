@@ -4,8 +4,7 @@ logLevel: info
 outputTopicPrefix: otel.flat
 
 otlp:
-  grpcAddr: ":4317"
-  httpAddr: ":4318"
+  addr: ":4317"
   maxRecvMsgSizeMiB: 4
 
 topics:

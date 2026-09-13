@@ -7,5 +7,5 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o nexus ./cmd
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=builder /app/nexus /nexus
-EXPOSE 4317 4318
+EXPOSE 4317
 ENTRYPOINT ["/nexus"]

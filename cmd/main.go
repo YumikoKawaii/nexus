@@ -48,31 +48,26 @@ func main() {
 
 	svc := receiver.NewService(cfg, p, logger)
 
-	grpcSrv := receiver.NewGRPCServer(cfg.OTLP.GRPCAddr, cfg.OTLP.MaxRecvMsgSizeMiB, svc)
-	if err := grpcSrv.Start(logger); err != nil {
-		logger.Error("otlp grpc start failed", "err", err)
+	srv, err := receiver.NewServer(cfg.OTLP.Addr, cfg.OTLP.MaxRecvMsgSizeMiB, svc)
+	if err != nil {
+		logger.Error("otlp server init failed", "err", err)
 		os.Exit(1)
 	}
-
-	httpSrv := receiver.NewHTTPServer(cfg.OTLP.HTTPAddr, svc)
-	if err := httpSrv.Start(logger); err != nil {
-		logger.Error("otlp http start failed", "err", err)
+	if err := srv.Start(logger); err != nil {
+		logger.Error("otlp server start failed", "err", err)
 		os.Exit(1)
 	}
 
 	logger.Info("nexus started",
 		"brokers", cfg.KafkaBrokers,
-		"otlp_grpc", cfg.OTLP.GRPCAddr,
-		"otlp_http", cfg.OTLP.HTTPAddr,
+		"otlp_addr", cfg.OTLP.Addr,
 		"producer_mode", cfg.Producer.Mode,
 	)
 
 	<-ctx.Done()
 	logger.Info("shutting down")
 
-	grpcSrv.Stop()
-
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
-	httpSrv.Stop(shutdownCtx)
+	srv.Stop(shutdownCtx)
 }

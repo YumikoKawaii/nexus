@@ -34,18 +34,16 @@ spec:
           args:
             - --config=/etc/nexus/config.yaml
           ports:
-            - name: grpc
-              containerPort: {{ .Values.service.grpcPort }}
-            - name: http
-              containerPort: {{ .Values.service.httpPort }}
+            - name: otlp
+              containerPort: {{ .Values.service.port }}
           livenessProbe:
             tcpSocket:
-              port: grpc
+              port: otlp
             initialDelaySeconds: 5
             periodSeconds: 10
           readinessProbe:
             tcpSocket:
-              port: grpc
+              port: otlp
             initialDelaySeconds: 5
             periodSeconds: 10
           {{- with .Values.extraEnvFrom }}
